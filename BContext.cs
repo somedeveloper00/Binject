@@ -74,12 +74,12 @@ namespace Binject {
         /// <summary>
         /// Checks if this context has a dependency of type <see cref="T"/>.
         /// </summary>
-        public bool HasDependency<T>() where T : unmanaged, IBDependency => _dependencyTypes.Contains( typeof(T) );
+        public bool HasDependency<T>() where T : struct, IBDependency => _dependencyTypes.Contains( typeof(T) );
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns default.
         /// </summary>
-        public T GetDependency<T>() where T : unmanaged, IBDependency {
+        public T GetDependency<T>() where T : struct, IBDependency {
             if (HasDependency<T>())
                 for (int i = 0; i < dependencies.Count; i++)
                     if (dependencies[i].GetType() == typeof(T))
@@ -93,7 +93,7 @@ namespace Binject {
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
         /// <see cref="GetDependency{T}"/> call.
         /// </summary>
-        public T GetDependencyNoCheck<T>() where T : unmanaged, IBDependency {
+        public T GetDependencyNoCheck<T>() where T : struct, IBDependency {
             for (int i = 0; i < dependencies.Count; i++)
                 if (dependencies[i].GetType() == typeof(T))
                     return (T)dependencies[i];

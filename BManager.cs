@@ -12,7 +12,7 @@ namespace Binject {
         /// <see cref="Transform"/>. returns null if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static BContext FindContext<T>(Transform transform) where T : unmanaged, IBDependency {
+        public static BContext FindContext<T>(Transform transform) where T : struct, IBDependency {
             
             [MethodImpl( MethodImplOptions.AggressiveInlining)]
             bool isTheCorrectContext(int i) {
@@ -39,7 +39,7 @@ namespace Binject {
         /// Returns the dependency of type <see cref="T"/> from a compatible context. returns default if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static T GetDependency<T>(Transform transform) where T : unmanaged, IBDependency {
+        public static T GetDependency<T>(Transform transform) where T : struct, IBDependency {
             var context = FindContext<T>( transform );
             if (context == null) return default;
             return context.GetDependencyNoCheck<T>();
@@ -49,7 +49,7 @@ namespace Binject {
         /// Checks if the dependency of type <see cref="T"/> exists in a compatible context.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(Transform transform) where T : unmanaged, IBDependency {
+        public static bool DependencyExists<T>(Transform transform) where T : struct, IBDependency {
             var context = FindContext<T>( transform );
             return context != null;
         }
@@ -60,8 +60,8 @@ namespace Binject {
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2) GetDependencies<T1, T2>(Transform transform)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ));
         }
@@ -69,9 +69,9 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3) GetDependencies<T1, T2, T3>(Transform transform)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ));
         }
@@ -79,10 +79,10 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(Transform transform)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
-            where T4 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
+            where T4 : struct, IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ));
         }
@@ -90,11 +90,11 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(Transform transform)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
-            where T4 : unmanaged, IBDependency 
-            where T5 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
+            where T4 : struct, IBDependency 
+            where T5 : struct, IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ), GetDependency<T5>( transform ));
         }
@@ -105,21 +105,21 @@ namespace Binject {
 
         /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static T GetDependency<T>(this Component component) where T : unmanaged, IBDependency {
+        public static T GetDependency<T>(this Component component) where T : struct, IBDependency {
             return GetDependency<T>( component.transform );
         }
         
         /// <inheritdoc cref="DependencyExists{T}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(this Component component) where T : unmanaged, IBDependency {
+        public static bool DependencyExists<T>(this Component component) where T : struct, IBDependency {
             return DependencyExists<T>( component.transform );
         }
         
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2>(this Component component, out T1 t1, out T2 t2)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
         {
             (t1, t2) = GetDependencies<T1, T2>( component.transform );
         }
@@ -127,9 +127,9 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3>(this Component component, out T1 t1, out T2 t2, out T3 t3)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
         {
             (t1, t2, t3) = GetDependencies<T1, T2, T3>( component.transform );
         }
@@ -137,10 +137,10 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3, T4>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
-            where T4 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
+            where T4 : struct, IBDependency 
         {
             (t1, t2, t3, t4) = GetDependencies<T1, T2, T3, T4>( component.transform );
         }
@@ -148,11 +148,11 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3, T4, T5>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4, out T5 t5)
-            where T1 : unmanaged, IBDependency
-            where T2 : unmanaged, IBDependency 
-            where T3 : unmanaged, IBDependency 
-            where T4 : unmanaged, IBDependency 
-            where T5 : unmanaged, IBDependency 
+            where T1 : struct, IBDependency
+            where T2 : struct, IBDependency 
+            where T3 : struct, IBDependency 
+            where T4 : struct, IBDependency 
+            where T5 : struct, IBDependency 
         {
             (t1, t2, t3, t4, t5) = GetDependencies<T1, T2, T3, T4, T5>( component.transform );
         }
