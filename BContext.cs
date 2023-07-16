@@ -9,17 +9,27 @@ namespace Binject {
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu( "Binject/Binject Context" )]
+    [DefaultExecutionOrder( -10 )]
     public sealed class BContext : MonoBehaviour {
         [SerializeReference] 
         internal List<IBDependency> dependencies = new( 16 );
         readonly HashSet<Type> _dependencyTypes = new( 16 );
 
+        bool _added;
+
         void Awake() {
             SyncDependencyTypes();
+            BinjectManager.AddContext( this );
+            _added = true;
         }
 
 #if UNITY_EDITOR
         void OnValidate() {
+            for (int i = 0; i < dependencies.Count; i++)
+                if (dependencies[i] == null)
+                    dependencies.RemoveAt( i-- );
+
+            // delete duplicates
             for (int i = 0; i < dependencies.Count - 1; i++)
             for (int j = i + 1; j < dependencies.Count; j++)
                 if (dependencies[i].GetType() == dependencies[j].GetType())
@@ -28,8 +38,15 @@ namespace Binject {
 
 #endif
 
-        void OnEnable() => BManager.AddContext( this );
-        void OnDisable() => BManager.RemoveContext( this );
+        void OnEnable() {
+            if (!_added) BinjectManager.AddContext( this );
+            _added = true;
+        }
+
+        void OnDisable() {
+            if (_added) BinjectManager.RemoveContext( this );
+            _added = false;
+        }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         void SyncDependencyTypes() {
@@ -74,12 +91,12 @@ namespace Binject {
         /// <summary>
         /// Checks if this context has a dependency of type <see cref="T"/>.
         /// </summary>
-        public bool HasDependency<T>() where T : struct, IBDependency => _dependencyTypes.Contains( typeof(T) );
+        public bool HasDependency<T>() where T : IBDependency => _dependencyTypes.Contains( typeof(T) );
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns default.
         /// </summary>
-        public T GetDependency<T>() where T : struct, IBDependency {
+        public T GetDependency<T>() where T : IBDependency {
             if (HasDependency<T>())
                 for (int i = 0; i < dependencies.Count; i++)
                     if (dependencies[i].GetType() == typeof(T))
@@ -93,7 +110,7 @@ namespace Binject {
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
         /// <see cref="GetDependency{T}"/> call.
         /// </summary>
-        public T GetDependencyNoCheck<T>() where T : struct, IBDependency {
+        public T GetDependencyNoCheck<T>() where T : IBDependency {
             for (int i = 0; i < dependencies.Count; i++)
                 if (dependencies[i].GetType() == typeof(T))
                     return (T)dependencies[i];

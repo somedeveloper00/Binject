@@ -3,16 +3,16 @@ using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Binject {
-    public static class BManager {
+    public static class BinjectManager {
         static readonly List<BContext> _contexts = new List<BContext>( 16 );
-        static int _rootContextIndex;
+        static int _rootContextIndex = -1;
 
         /// <summary>
         /// Finds the context holding the required dependencies of type <see cref="T"/> compatible with the given
         /// <see cref="Transform"/>. returns null if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static BContext FindContext<T>(Transform transform) where T : struct, IBDependency {
+        public static BContext FindContext<T>(Transform transform) where T : IBDependency {
             
             [MethodImpl( MethodImplOptions.AggressiveInlining)]
             bool isTheCorrectContext(int i) {
@@ -25,8 +25,10 @@ namespace Binject {
 
                 if (!transform.parent && transform != _contexts[_rootContextIndex].transform) {
                     // root context check
+                    transform = _contexts[_rootContextIndex].transform;
                     if (isTheCorrectContext( _rootContextIndex )) return _contexts[_rootContextIndex];
                 }
+
                 transform = transform.parent;
             } while (transform);
 
@@ -39,7 +41,7 @@ namespace Binject {
         /// Returns the dependency of type <see cref="T"/> from a compatible context. returns default if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static T GetDependency<T>(Transform transform) where T : struct, IBDependency {
+        public static T GetDependency<T>(Transform transform) where T : IBDependency {
             var context = FindContext<T>( transform );
             if (context == null) return default;
             return context.GetDependencyNoCheck<T>();
@@ -49,7 +51,7 @@ namespace Binject {
         /// Checks if the dependency of type <see cref="T"/> exists in a compatible context.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(Transform transform) where T : struct, IBDependency {
+        public static bool DependencyExists<T>(Transform transform) where T : IBDependency {
             var context = FindContext<T>( transform );
             return context != null;
         }
@@ -60,8 +62,8 @@ namespace Binject {
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2) GetDependencies<T1, T2>(Transform transform)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ));
         }
@@ -69,9 +71,9 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3) GetDependencies<T1, T2, T3>(Transform transform)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ));
         }
@@ -79,10 +81,10 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(Transform transform)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
-            where T4 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
+            where T4 : IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ));
         }
@@ -90,11 +92,11 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(Transform transform)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
-            where T4 : struct, IBDependency 
-            where T5 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
+            where T4 : IBDependency 
+            where T5 : IBDependency 
         {
             return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ), GetDependency<T5>( transform ));
         }
@@ -105,21 +107,21 @@ namespace Binject {
 
         /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static T GetDependency<T>(this Component component) where T : struct, IBDependency {
+        public static T GetDependency<T>(this Component component) where T : IBDependency {
             return GetDependency<T>( component.transform );
         }
         
         /// <inheritdoc cref="DependencyExists{T}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(this Component component) where T : struct, IBDependency {
+        public static bool DependencyExists<T>(this Component component) where T : IBDependency {
             return DependencyExists<T>( component.transform );
         }
         
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2>(this Component component, out T1 t1, out T2 t2)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
         {
             (t1, t2) = GetDependencies<T1, T2>( component.transform );
         }
@@ -127,9 +129,9 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3>(this Component component, out T1 t1, out T2 t2, out T3 t3)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
         {
             (t1, t2, t3) = GetDependencies<T1, T2, T3>( component.transform );
         }
@@ -137,10 +139,10 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3, T4>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
-            where T4 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
+            where T4 : IBDependency 
         {
             (t1, t2, t3, t4) = GetDependencies<T1, T2, T3, T4>( component.transform );
         }
@@ -148,11 +150,11 @@ namespace Binject {
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
         public static void GetDependencies<T1, T2, T3, T4, T5>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4, out T5 t5)
-            where T1 : struct, IBDependency
-            where T2 : struct, IBDependency 
-            where T3 : struct, IBDependency 
-            where T4 : struct, IBDependency 
-            where T5 : struct, IBDependency 
+            where T1 : IBDependency
+            where T2 : IBDependency 
+            where T3 : IBDependency 
+            where T4 : IBDependency 
+            where T5 : IBDependency 
         {
             (t1, t2, t3, t4, t5) = GetDependencies<T1, T2, T3, T4, T5>( component.transform );
         }
@@ -162,7 +164,7 @@ namespace Binject {
         
         internal static void AddContext(BContext context) {
             _contexts.Add( context );
-            UpdateRootContext( new HashSet<int> { _contexts.Count - 1 } );
+            UpdateRootContext();
         }
 
         internal static void RemoveContext(BContext context) {
@@ -174,12 +176,13 @@ namespace Binject {
         /// <summary>
         /// Sorts contexts based on their hierarchy depth and index.
         /// </summary>
-        static void UpdateRootContext(HashSet<int> dirties) {
-            int rootContextHierarchyIndex = -1;
+        static void UpdateRootContext() {
+            int rootContextHierarchyOrder = int.MaxValue;
+            _rootContextIndex = 0;
             for (int i = 0; i < _contexts.Count; i++) {
-                var ind = GetHierarchyIndex( _contexts[i].transform );
-                if (rootContextHierarchyIndex < ind) {
-                    rootContextHierarchyIndex = ind;
+                var order = GetHierarchyOrder( _contexts[i].transform );
+                if (rootContextHierarchyOrder > order) {
+                    rootContextHierarchyOrder = order;
                     _rootContextIndex = i;
                 }
             }
@@ -189,14 +192,14 @@ namespace Binject {
         /// Returns the index of which the transform will show up in hierarchy if everything is expanded
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        static int GetHierarchyIndex(Transform transform) {
-            int c = 0;
+        static int GetHierarchyOrder(Transform transform) {
+            int order = 0;
             do {
-                c += transform.GetSiblingIndex();
+                order += transform.GetSiblingIndex();
                 transform = transform.parent;
-            } while (transform.parent);
+            } while (transform);
 
-            return c;
+            return order;
         }
 
 
