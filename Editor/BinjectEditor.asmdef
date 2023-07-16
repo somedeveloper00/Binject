@@ -1,0 +1,18 @@
+{
+    "name": "BinjectEditor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:76a13bcc2bd27f5479647970fea773d1"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
