@@ -1,0 +1,23 @@
+{
+  "name": "com.somedeveloper.binject",
+  "version": "0.1",
+  "displayName": "Binject",
+  "description": "Better injection system in Unity",
+  "unity": "2022.3",
+  "unityRelease": "22f3",
+  "documentationUrl": "https://github.com/somedeveloper00/Binject",
+  "licensesUrl": "https://github.com/somedeveloper00/Binject/LICENSE.md",
+  "keywords": [
+    "binject",
+    "inject",
+    "dependency",
+    "di",
+    "zenject"
+  ],
+  "author": {
+    "name": "SomeDeveloper",
+    "email": "barari.saeed.am@gmail.com",
+    "url": "https://github.com/somedeveloper00"
+  },
+  "hideInEditor": false
+}
