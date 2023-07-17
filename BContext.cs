@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using UnityEngine;
 
 namespace Binject {
@@ -11,29 +13,49 @@ namespace Binject {
     [AddComponentMenu( "Binject/Binject Context" )]
     [DefaultExecutionOrder( -10 )]
     public sealed class BContext : MonoBehaviour {
-        [SerializeReference] 
-        internal List<IBDependency> dependencies = new( 16 );
+        
+        [Tooltip( "List of injectable non Unity Object data as dependency." )]
+        [SerializeReference] internal List<IBDependency> dataDependencies = new( 8 );
+        
+        [Tooltip( "List of injectable Unity Objects as dependency." )]
+        [SerializeField] internal List<UnityEngine.Object> objectDependencies = new( 8 );
+        
         readonly HashSet<Type> _dependencyTypes = new( 16 );
 
         bool _added;
 
         void Awake() {
-            SyncDependencyTypes();
+            AddAllDependencyTypes( true );
             BinjectManager.AddContext( this );
             _added = true;
         }
 
 #if UNITY_EDITOR
         void OnValidate() {
-            for (int i = 0; i < dependencies.Count; i++)
-                if (dependencies[i] == null)
-                    dependencies.RemoveAt( i-- );
+            if (Application.isPlaying) return;
+            StringBuilder sb = new( 128 );
+            for (int i = 0; i < dataDependencies.Count; i++)
+                if (dataDependencies[i] == null) {
+                    sb.AppendLine( $"    - Data at {i}: was null" );
+                    dataDependencies.RemoveAt( i-- );
+                }
 
             // delete duplicates
-            for (int i = 0; i < dependencies.Count - 1; i++)
-            for (int j = i + 1; j < dependencies.Count; j++)
-                if (dependencies[i].GetType() == dependencies[j].GetType())
-                    dependencies.RemoveAt( j-- );
+            for (int i = 0; i < dataDependencies.Count - 1; i++)
+            for (int j = i + 1; j < dataDependencies.Count; j++)
+                if (dataDependencies[i].GetType() == dataDependencies[j].GetType()) {
+                    sb.AppendLine( $"    - Data at {j}: duplicate of {i}" );
+                    dataDependencies.RemoveAt( j-- );
+                }
+            for (int i = 0; i < objectDependencies.Count - 1; i++)
+            for (int j = i + 1; j < objectDependencies.Count; j++)
+                if (objectDependencies[i].GetType() == objectDependencies[j].GetType()) {
+                    sb.AppendLine( $"    - Object at {j}: duplicate of {i}" );
+                    objectDependencies.RemoveAt( j-- );
+                }
+
+            if (sb.Length > 0) 
+                Debug.LogWarning( $"Binject Context of {name} removed some dependencies:\n{sb}" );
         }
 
 #endif
@@ -49,9 +71,12 @@ namespace Binject {
         }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        void SyncDependencyTypes() {
-            for (int i = 0; i < dependencies.Count; i++)
-                _dependencyTypes.Add( dependencies[i].GetType() );
+        void AddAllDependencyTypes(bool clear) {
+            if (clear) _dependencyTypes.Clear();
+            for (int i = 0; i < dataDependencies.Count; i++)
+                _dependencyTypes.Add( dataDependencies[i].GetType() );
+            for (int i = 0; i < objectDependencies.Count; i++) 
+                _dependencyTypes.Add( objectDependencies[i].GetType() );
         }
 
         /// <summary>
@@ -61,14 +86,26 @@ namespace Binject {
         public void Bind(IBDependency dependency) {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
-                dependencies.Add( dependency );
+                if (dependency is UnityEngine.Object obj)
+                    objectDependencies.Add( obj );
+                else
+                    dataDependencies.Add( dependency );
             }
             else {
                 // override previous of same type
-                for (int i = 0; i < dependencies.Count; i++) {
-                    if (dependencies[i].GetType() == dependency.GetType()) {
-                        dependencies[i] = dependency;
-                        break;
+                if (dependency is UnityEngine.Object obj) {
+                    for (int i = 0; i < objectDependencies.Count; i++) {
+                        if (objectDependencies[i].GetType() == dependency.GetType()) {
+                            objectDependencies[i] = obj;
+                            break;
+                        }
+                    }
+                } else {
+                    for (int i = 0; i < dataDependencies.Count; i++) {
+                        if (dataDependencies[i].GetType() == dependency.GetType()) {
+                            dataDependencies[i] = dependency;
+                            break;
+                        }
                     }
                 }
             }
@@ -79,10 +116,19 @@ namespace Binject {
         /// </summary>
         public void Unbind<T>() where T : IBDependency {
             if (_dependencyTypes.Remove( typeof(T) )) {
-                for (int i = 0; i < dependencies.Count; i++) {
-                    if (dependencies[i].GetType() == typeof(T)) {
-                        dependencies.RemoveAt( i );
-                        return;
+                if (IsUnityObjectType( typeof(T))) {
+                    for (int i = 0; i < objectDependencies.Count; i++) {
+                        if (objectDependencies[i].GetType() == typeof(T)) {
+                            objectDependencies.RemoveAt( i );
+                            return;
+                        }
+                    }
+                } else {
+                    for (int i = 0; i < dataDependencies.Count; i++) {
+                        if (dataDependencies[i].GetType() == typeof(T)) {
+                            dataDependencies.RemoveAt( i );
+                            return;
+                        }
                     }
                 }
             }
@@ -97,10 +143,17 @@ namespace Binject {
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns default.
         /// </summary>
         public T GetDependency<T>() where T : IBDependency {
-            if (HasDependency<T>())
-                for (int i = 0; i < dependencies.Count; i++)
-                    if (dependencies[i].GetType() == typeof(T))
-                        return (T)dependencies[i];
+            if (HasDependency<T>()) {
+                if (IsUnityObjectType( typeof(T))) {
+                    for (int i = 0; i < objectDependencies.Count; i++)
+                        if (objectDependencies[i].GetType() == typeof(T))
+                            return (T)(IBDependency)objectDependencies[i];
+                } else {
+                    for (int i = 0; i < dataDependencies.Count; i++)
+                        if (dataDependencies[i].GetType() == typeof(T))
+                            return (T)dataDependencies[i];
+                }
+            }
             return default;
         }
 
@@ -111,10 +164,20 @@ namespace Binject {
         /// <see cref="GetDependency{T}"/> call.
         /// </summary>
         public T GetDependencyNoCheck<T>() where T : IBDependency {
-            for (int i = 0; i < dependencies.Count; i++)
-                if (dependencies[i].GetType() == typeof(T))
-                    return (T)dependencies[i];
+            if (IsUnityObjectType( typeof(T))) {
+                for (int i = 0; i < objectDependencies.Count; i++)
+                    if (objectDependencies[i].GetType() == typeof(T))
+                        return (T)(IBDependency)objectDependencies[i];
+            } else {
+                for (int i = 0; i < dataDependencies.Count; i++)
+                    if (dataDependencies[i].GetType() == typeof(T))
+                        return (T)dataDependencies[i];
+            }
+
             return default;
         }
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        static bool IsUnityObjectType(Type type) => type.IsSubclassOf( typeof(UnityEngine.Object) );
     }
 }

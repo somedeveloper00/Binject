@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Binject;
@@ -10,67 +11,70 @@ using Object = UnityEngine.Object;
 namespace BinjectEditor {
     [CustomEditor( typeof(BContext) )]
     internal class BContextEditor : Editor {
-
-        ReorderableList _list;
         BContext _context;
-        SerializedProperty dependenciesProp;
+        
+        SerializedProperty dataDependenciesProp;
+        SerializedProperty objectDependenciesProp;
+        ReorderableList _dataList;
+        ReorderableList _objectList;
+        
         static GUIStyle _headerStyle;
+        static GUIContent _objectListHeaderGuiContent;
+        static GUIContent _dataListHeaderGuiContent;
+        
+        void SetupDataList() {
+            _dataList = new ReorderableList( serializedObject, dataDependenciesProp,
+                draggable: true,
+                displayHeader: true,
+                displayAddButton: !Application.isPlaying && AllNonObjectDependencyTypes.Length > 0,
+                displayRemoveButton: !Application.isPlaying && AllNonObjectDependencyTypes.Length > 0 );
 
-        void OnEnable() {
-            _context = (BContext)target;
-            dependenciesProp = serializedObject.FindProperty( nameof(BContext.dependencies) );
-
-            _list = new ReorderableList( serializedObject, dependenciesProp, 
-                draggable: true, 
-                displayHeader: true, 
-                displayAddButton: AllDependencyTypes.Length > 0, 
-                displayRemoveButton: AllDependencyTypes.Length > 0 );
-
-            _list.headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
-            _list.drawHeaderCallback += rect => {
-                GUI.Label( rect, dependenciesProp.displayName, _headerStyle );
+            _dataList.headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            _dataList.drawHeaderCallback += rect => {
+                _dataListHeaderGuiContent ??= new GUIContent(dataDependenciesProp.displayName, dataDependenciesProp.tooltip);
+                GUI.Label( rect, _dataListHeaderGuiContent, _headerStyle );
             };
 
-            _list.elementHeightCallback += index => {
-                var prop = dependenciesProp.GetArrayElementAtIndex( index );
+            _dataList.elementHeightCallback += index => {
+                var prop = dataDependenciesProp.GetArrayElementAtIndex( index );
                 var headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
                 if (!prop.isExpanded) return headerHeight;
-                
+
                 var hasCustomEditor = HasCustomEditor( prop );
-                if (hasCustomEditor) {
+                if (hasCustomEditor) 
                     return headerHeight + EditorGUI.GetPropertyHeight( prop, true );
-                }
+ 
                 // else
                 float bodyHeight = 0;
                 int d = prop.depth;
                 prop.Next( true );
                 do {
-                    if (prop.depth == d) break;
+                    if (prop.depth <= d) break;
                     bodyHeight += EditorGUI.GetPropertyHeight( prop, true ) + EditorGUIUtility.standardVerticalSpacing;
                 } while (prop.Next( false ));
 
                 return headerHeight + bodyHeight;
             };
-            _list.drawElementCallback += (rect, index, active, focused) => {
-                var prop = dependenciesProp.GetArrayElementAtIndex( index );
+            _dataList.drawElementCallback += (rect, index, active, focused) => {
+                var prop = dataDependenciesProp.GetArrayElementAtIndex( index );
                 // check if has custom editor
                 rect.height = EditorGUIUtility.singleLineHeight;
-                
-                prop.isExpanded = EditorGUI.BeginFoldoutHeaderGroup( 
-                    position: rect, 
+
+                prop.isExpanded = EditorGUI.BeginFoldoutHeaderGroup(
+                    position: rect,
                     foldout: prop.isExpanded,
                     content: prop.managedReferenceValue.GetType().ToString(),
                     menuAction: rect => {
                         var menu = new GenericMenu();
                         menu.AddItem( new GUIContent( "Remove" ), false, () => {
-                            dependenciesProp.DeleteArrayElementAtIndex( index );
+                            dataDependenciesProp.DeleteArrayElementAtIndex( index );
                             serializedObject.ApplyModifiedProperties();
                         } );
                         menu.DropDown( rect );
                     }
                 );
                 EditorGUI.EndFoldoutHeaderGroup();
-                
+
                 rect.y += EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
                 if (prop.isExpanded) {
                     bool hasCustomEditor = HasCustomEditor( prop );
@@ -80,44 +84,79 @@ namespace BinjectEditor {
                         int d = prop.depth;
                         prop.Next( true );
                         do {
-                            if (prop.depth == d) break;
+                            if (prop.depth <= d) break;
                             EditorGUI.PropertyField( rect, prop, true );
-                            rect.y += EditorGUI.GetPropertyHeight( prop, true ) + EditorGUIUtility.standardVerticalSpacing;
+                            rect.y += EditorGUI.GetPropertyHeight( prop, true ) +
+                                      EditorGUIUtility.standardVerticalSpacing;
                         } while (prop.Next( false ));
                     }
                 }
             };
-            
-            _list.onAddDropdownCallback += (_, _) => {
+
+            _dataList.onAddDropdownCallback += (_, _) => {
                 var menu = new GenericMenu();
-                for (int i = 0; i < AllDependencyTypes.Length; i++) {
+                for (int i = 0; i < AllNonObjectDependencyTypes.Length; i++) {
                     int index = i;
-                    bool typeAlreadyIncluded = _context.dependencies.Any( d => d.GetType() == AllDependencyTypes[index] );
+                    bool typeAlreadyIncluded = _context.dataDependencies.Any( d => d.GetType() == AllNonObjectDependencyTypes[index] );
                     if (typeAlreadyIncluded) {
-                        menu.AddDisabledItem( AllDependencyTypeNames[i], false );
-                    }
-                    else {
-                        menu.AddItem( AllDependencyTypeNames[i], false, () => {
-                            var dependency = Activator.CreateInstance( AllDependencyTypes[index] ) as IBDependency;
-                            dependenciesProp.InsertArrayElementAtIndex( dependenciesProp.arraySize );
-                            dependenciesProp.GetArrayElementAtIndex( dependenciesProp.arraySize - 1 )
+                        menu.AddDisabledItem( AllNonObjectDependencyTypesNames[i], false );
+                    } else {
+                        menu.AddItem( AllNonObjectDependencyTypesNames[i], false, () => {
+                            var dependency = Activator.CreateInstance( AllNonObjectDependencyTypes[index] ) as IBDependency;
+                            dataDependenciesProp.arraySize++;
+                            dataDependenciesProp.GetArrayElementAtIndex( dataDependenciesProp.arraySize - 1 )
                                 .managedReferenceValue = dependency;
                             serializedObject.ApplyModifiedProperties();
                         } );
                     }
                 }
+
                 menu.ShowAsContext();
             };
 
-            bool HasCustomEditor(SerializedProperty prop) {
-                return prop.managedReferenceValue is IBHasCustomDrawer;
-            }
         }
 
+        void SetupObjectList() {
+            _objectList = new ReorderableList( serializedObject, objectDependenciesProp,
+                draggable: true,
+                displayHeader: true,
+                displayAddButton: !Application.isPlaying,
+                displayRemoveButton: !Application.isPlaying );
+
+            _objectList.headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            _objectList.drawHeaderCallback += rect => {
+                _objectListHeaderGuiContent ??= new GUIContent(objectDependenciesProp.displayName, objectDependenciesProp.tooltip);
+                GUI.Label( rect, _objectListHeaderGuiContent, _headerStyle );
+            };
+
+            _objectList.elementHeightCallback += index => EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            _objectList.drawElementCallback += (rect, index, _, _) => {
+                rect.height = EditorGUIUtility.singleLineHeight;
+                EditorGUI.PropertyField( rect, objectDependenciesProp.GetArrayElementAtIndex( index ), GUIContent.none, true );
+            };
+
+            _objectList.onAddCallback += _ => {
+                objectDependenciesProp.arraySize++;
+                objectDependenciesProp.GetArrayElementAtIndex( objectDependenciesProp.arraySize - 1 )
+                    .objectReferenceValue = null;
+            };
+        }
+
+        static bool HasCustomEditor(SerializedProperty prop) => prop.managedReferenceValue is IBHasCustomDrawer;
+
         public override void OnInspectorGUI() {
+            if ( dataDependenciesProp == null ) { 
+                _context = (BContext)target;
+                dataDependenciesProp = serializedObject.FindProperty( nameof(BContext.dataDependencies) );
+                objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.objectDependencies) );
+                SetupDataList();
+                SetupObjectList();
+            }
+
             InitStylesIfNotAlready();
             serializedObject.Update();
-            _list.DoLayoutList();
+            _dataList.DoLayoutList();
+            _objectList.DoLayoutList();
             serializedObject.ApplyModifiedProperties();
         }
 
@@ -127,14 +166,15 @@ namespace BinjectEditor {
                 _headerStyle.alignment = TextAnchor.MiddleCenter;
             }
         }
-
-        public static Type[] AllDependencyTypes = AppDomain.CurrentDomain
+        
+        static Type[] AllNonObjectDependencyTypes = AppDomain.CurrentDomain
             .GetAssemblies()
             .SelectMany( assembly => assembly.GetTypes()
                 .Where( type => type.GetInterfaces().Contains( typeof(IBDependency) )
-                                && (type.GetCustomAttribute( typeof(SerializableAttribute) ) != null || type.IsSubclassOf( typeof(Object) ))
+                                && type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&
+                                !type.IsSubclassOf( typeof(Object) )
                 ) ).ToArray();
         
-        public static GUIContent[] AllDependencyTypeNames = AllDependencyTypes.Select( type => new GUIContent( type.FullName.Replace( '.', '/' ) ) ).ToArray();
+        static GUIContent[] AllNonObjectDependencyTypesNames = AllNonObjectDependencyTypes.Select( type => new GUIContent( type.FullName.Replace( '.', '/' ) ) ).ToArray();
     }
 }
