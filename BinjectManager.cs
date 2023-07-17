@@ -1,11 +1,20 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Binject {
+    [ExecuteAlways] 
     public static class BinjectManager {
-        static readonly List<BContext> _contexts = new List<BContext>( 16 );
-        static int _rootContextIndex = -1;
+        [NonSerialized] static readonly List<BContext> _contexts = new( 16 );
+        [NonSerialized] static readonly Dictionary<Scene, BContext> _sceneRootContexts = new( 4 );
+        [NonSerialized] static BContext _rootContext;
+
+#if UNITY_EDITOR
+        const bool DEBUG_LOG = false; 
+#endif
 
         /// <summary>
         /// Finds the context holding the required dependencies of type <see cref="T"/> compatible with the given
@@ -15,22 +24,24 @@ namespace Binject {
         public static BContext FindContext<T>(Transform transform) where T : IBDependency {
             
             [MethodImpl( MethodImplOptions.AggressiveInlining)]
-            bool isTheCorrectContext(int i) {
-                return _contexts[i].transform == transform && _contexts[i].HasDependency<T>();
+            bool isTheCorrectContext(BContext context) {
+                return context.transform == transform && context.HasDependency<T>();
             }
-            
+
             do {
                 for (int i = 0; i < _contexts.Count; i++)
-                    if (isTheCorrectContext( i )) return _contexts[i];
+                    if (isTheCorrectContext( _contexts[i] )) return _contexts[i];
 
-                if (!transform.parent && transform != _contexts[_rootContextIndex].transform) {
+                if (!transform.parent && transform != _rootContext.transform) {
                     // root context check
-                    transform = _contexts[_rootContextIndex].transform;
-                    if (isTheCorrectContext( _rootContextIndex )) return _contexts[_rootContextIndex];
+                    transform = _rootContext.transform;
+                    if (isTheCorrectContext( _rootContext )) return _rootContext;
                 }
 
                 transform = transform.parent;
             } while (transform);
+
+            Debug.LogWarning( $"No context found containing the dependency type {typeof(T).FullName}" );
 
             return null;
         }
@@ -163,11 +174,21 @@ namespace Binject {
 
         
         internal static void AddContext(BContext context) {
+#if UNITY_EDITOR
+            if (DEBUG_LOG) {
+                Debug.Log( $"adding {context.name} to [{string.Join( ", ", _contexts.Select( c => c.name ) )}]" );
+            }
+#endif
             _contexts.Add( context );
             UpdateRootContext();
         }
 
         internal static void RemoveContext(BContext context) {
+#if UNITY_EDITOR
+            if (DEBUG_LOG) {
+                Debug.Log( $"removing {context.name} from [{string.Join( ", ", _contexts.Select( c => c.name ) )}]" );
+            }
+#endif
             var ind = _contexts.IndexOf( context );
             _contexts.RemoveAt( ind );
         }
@@ -176,16 +197,28 @@ namespace Binject {
         /// <summary>
         /// Sorts contexts based on their hierarchy depth and index.
         /// </summary>
-        static void UpdateRootContext() {
-            int rootContextHierarchyOrder = int.MaxValue;
-            _rootContextIndex = 0;
+        internal static void UpdateRootContext() {
+#if UNITY_EDITOR
+            bool changed = false;
+#endif
+            int rootContextHierarchyOrder = _rootContext ? GetHierarchyOrder( _rootContext.transform ) : int.MaxValue;
             for (int i = 0; i < _contexts.Count; i++) {
-                var order = GetHierarchyOrder( _contexts[i].transform );
-                if (rootContextHierarchyOrder > order) {
-                    rootContextHierarchyOrder = order;
-                    _rootContextIndex = i;
+                if (!ReferenceEquals( _rootContext, _contexts[i] )) {
+                    var order = GetHierarchyOrder( _contexts[i].transform );
+                    if (rootContextHierarchyOrder > order) {
+                        rootContextHierarchyOrder = order;
+                        _rootContext = _contexts[i];
+#if UNITY_EDITOR
+                        changed = true;
+#endif
+                    }
                 }
             }
+#if UNITY_EDITOR
+            if (DEBUG_LOG && changed) {
+                Debug.Log( $"root updated: {_rootContext.name}" );
+            }
+#endif
         }
 
         /// <summary>
@@ -201,7 +234,5 @@ namespace Binject {
 
             return order;
         }
-
-
     }
 }

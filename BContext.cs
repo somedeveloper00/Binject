@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
@@ -9,30 +8,27 @@ namespace Binject {
     /// <summary>
     /// A container for dependencies. You can use contexts to group dependencies.
     /// </summary>
+    [ExecuteAlways]
     [DisallowMultipleComponent]
-    [AddComponentMenu( "Binject/Binject Context" )]
     [DefaultExecutionOrder( -10 )]
+    [AddComponentMenu( "Binject/Binject Context" )]
     public sealed class BContext : MonoBehaviour {
         
         [Tooltip( "List of injectable non Unity Object data as dependency." )]
         [SerializeReference] internal List<IBDependency> dataDependencies = new( 8 );
-        
+         
         [Tooltip( "List of injectable Unity Objects as dependency." )]
         [SerializeField] internal List<UnityEngine.Object> objectDependencies = new( 8 );
         
         readonly HashSet<Type> _dependencyTypes = new( 16 );
 
-        bool _added;
-
-        void Awake() {
-            AddAllDependencyTypes( true );
-            BinjectManager.AddContext( this );
-            _added = true;
-        }
+        [NonSerialized] bool _initialized; 
 
 #if UNITY_EDITOR
         void OnValidate() {
             if (Application.isPlaying) return;
+            
+            // fix broken lists
             StringBuilder sb = new( 128 );
             for (int i = 0; i < dataDependencies.Count; i++)
                 if (dataDependencies[i] == null) {
@@ -56,28 +52,39 @@ namespace Binject {
 
             if (sb.Length > 0) 
                 Debug.LogWarning( $"Binject Context of {name} removed some dependencies:\n{sb}" );
+            
+            // support in-editor injection
+            if (!_initialized) { 
+                SyncAllDependencyTypes( true );
+                BinjectManager.AddContext( this );
+                _initialized = true;
+            }
         }
 
 #endif
 
+        void Awake() {
+            if (!_initialized) {
+                SyncAllDependencyTypes( true );
+                BinjectManager.AddContext( this );
+                _initialized = true;
+            }
+        }
+
         void OnEnable() {
-            if (!_added) BinjectManager.AddContext( this );
-            _added = true;
+            if (!_initialized) BinjectManager.AddContext( this );
+            _initialized = true;
         }
 
         void OnDisable() {
-            if (_added) BinjectManager.RemoveContext( this );
-            _added = false;
+            if (_initialized) BinjectManager.RemoveContext( this );
+            _initialized = false;
         }
 
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        void AddAllDependencyTypes(bool clear) {
-            if (clear) _dependencyTypes.Clear();
-            for (int i = 0; i < dataDependencies.Count; i++)
-                _dependencyTypes.Add( dataDependencies[i].GetType() );
-            for (int i = 0; i < objectDependencies.Count; i++) 
-                _dependencyTypes.Add( objectDependencies[i].GetType() );
+        void OnDestroy() {
+            if (_initialized) BinjectManager.RemoveContext( this );
         }
+
 
         /// <summary>
         /// Binds a dependency to this context. If one with the same type already exists, the new one will override
@@ -133,7 +140,7 @@ namespace Binject {
                 }
             }
         }
-        
+
         /// <summary>
         /// Checks if this context has a dependency of type <see cref="T"/>.
         /// </summary>
@@ -154,6 +161,8 @@ namespace Binject {
                             return (T)dataDependencies[i];
                 }
             }
+
+            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
 
@@ -174,8 +183,20 @@ namespace Binject {
                         return (T)dataDependencies[i];
             }
 
+            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
+
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        internal void SyncAllDependencyTypes(bool clear) {
+            if (clear) _dependencyTypes.Clear();
+            for (int i = 0; i < dataDependencies.Count; i++)
+                _dependencyTypes.Add( dataDependencies[i].GetType() );
+            for (int i = 0; i < objectDependencies.Count; i++) 
+                _dependencyTypes.Add( objectDependencies[i].GetType() );
+        }
+
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static bool IsUnityObjectType(Type type) => type.IsSubclassOf( typeof(UnityEngine.Object) );
