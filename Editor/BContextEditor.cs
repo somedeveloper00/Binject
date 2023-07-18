@@ -28,12 +28,12 @@ namespace BinjectEditor {
                 type.IsClass && !type.IsAbstract && !type.IsSubclassOf( typeof(UnityEngine.Object) ) &&
                 !type.ContainsGenericParameters && !type.IsSubclassOf( typeof(Attribute) ) &&           // can't instantiate generic types or attributes
                 type.Assembly.GetName().Name != "mscorlib" &&                                           // mscorlib is too low-level to inject
-                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&
-                !type.FullName.Contains( '+' ) &&                                                       // compiler-generated types
-                type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&
+                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&                     // compiler-generated types
+                !type.FullName.Contains( '+' ) &&                                                       
+                type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&                     // for Unity serialization
                 !type.IsSubclassOf( typeof(Exception) ) &&                                              // no need to inject exceptions
                 !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) ) &&      // no need to inject disposables
-                type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                        // should be able to construct
+                type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                        // construct easily 
         );
 
         
