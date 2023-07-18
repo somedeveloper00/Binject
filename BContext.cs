@@ -19,7 +19,7 @@ namespace Binject {
         [SerializeField] internal ushort Group;
         
         [Tooltip( "List of injectable non Unity Object data as dependency." )]
-        [SerializeReference] internal List<IBDependency> DataDependencies = new( 8 );
+        [SerializeReference] internal List<object> DataDependencies = new( 8 );
          
         [Tooltip( "List of injectable Unity Objects as dependency." )]
         [SerializeField] internal List<UnityEngine.Object> ObjectDependencies = new( 8 );
@@ -94,20 +94,19 @@ namespace Binject {
         /// Binds a dependency to this context. If one with the same type already exists, the new one will override
         /// the old one.
         /// </summary>
-        public void Bind(IBDependency dependency) {
+        public void Bind<T>(T dependency) where T : class {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
-                if (dependency is UnityEngine.Object obj)
-                    ObjectDependencies.Add( obj );
+                if (IsUnityObjectType( dependency.GetType() ))
+                    ObjectDependencies.Add( dependency as UnityEngine.Object );
                 else
-                    DataDependencies.Add( dependency );
-            }
-            else {
+                    DataDependencies.Add( (IBDependency)dependency );
+            } else {
                 // override previous of same type
-                if (dependency is UnityEngine.Object obj) {
+                if (IsUnityObjectType( dependency.GetType() )) {
                     for (int i = 0; i < ObjectDependencies.Count; i++) {
                         if (ObjectDependencies[i].GetType() == dependency.GetType()) {
-                            ObjectDependencies[i] = obj;
+                            ObjectDependencies[i] = dependency as UnityEngine.Object;
                             break;
                         }
                     }
@@ -123,15 +122,15 @@ namespace Binject {
         }
 
         /// <summary>
-        /// Binds a dependency from this context.
+        /// Binds a <see cref="UnityEngine.Object"/> dependency from this context.
         /// </summary>
-        public void Unbind<T>() where T : IBDependency {
+        void Unbind<T>() where T : class {
             if (_dependencyTypes.Remove( typeof(T) )) {
-                if (IsUnityObjectType( typeof(T))) {
+                if (IsUnityObjectType( typeof(T) )) {
                     for (int i = 0; i < ObjectDependencies.Count; i++) {
                         if (ObjectDependencies[i].GetType() == typeof(T)) {
                             ObjectDependencies.RemoveAt( i );
-                            return;
+                            break;
                         }
                     }
                 } else {
@@ -146,23 +145,23 @@ namespace Binject {
         }
 
         /// <summary>
-        /// Checks if this context has a dependency of type <see cref="T"/>.
+        /// Checks if this context has a dependency of type <see cref="T"/>
         /// </summary>
-        public bool HasDependency<T>() where T : IBDependency => _dependencyTypes.Contains( typeof(T) );
+        public bool HasDependency<T>() => _dependencyTypes.Contains( typeof(T) );
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns default.
         /// </summary>
-        public T GetDependency<T>() where T : IBDependency {
+        public T GetDependency<T>() where T : class {
             if (HasDependency<T>()) {
-                if (IsUnityObjectType( typeof(T))) {
+                if (IsUnityObjectType( typeof(T) )) {
                     for (int i = 0; i < ObjectDependencies.Count; i++)
                         if (ObjectDependencies[i].GetType() == typeof(T))
-                            return (T)(IBDependency)ObjectDependencies[i];
+                            return ObjectDependencies[i] as T;
                 } else {
                     for (int i = 0; i < DataDependencies.Count; i++)
                         if (DataDependencies[i].GetType() == typeof(T))
-                            return (T)DataDependencies[i];
+                            return DataDependencies[i] as T;
                 }
             }
 
@@ -176,15 +175,15 @@ namespace Binject {
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
         /// <see cref="GetDependency{T}"/> call.
         /// </summary>
-        public T GetDependencyNoCheck<T>() where T : IBDependency {
-            if (IsUnityObjectType( typeof(T))) {
+        public T GetDependencyNoCheck<T>() where T : class {
+            if (IsUnityObjectType( typeof(T) )) {
                 for (int i = 0; i < ObjectDependencies.Count; i++)
                     if (ObjectDependencies[i].GetType() == typeof(T))
-                        return (T)(IBDependency)ObjectDependencies[i];
+                        return ObjectDependencies[i] as T;
             } else {
                 for (int i = 0; i < DataDependencies.Count; i++)
                     if (DataDependencies[i].GetType() == typeof(T))
-                        return (T)DataDependencies[i];
+                        return DataDependencies[i] as T;
             }
 
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );

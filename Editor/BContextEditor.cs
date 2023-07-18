@@ -167,22 +167,24 @@ namespace BinjectEditor {
         void DrawAdvanced() {
             _advancedFoldout = EditorGUILayout.BeginFoldoutHeaderGroup( _advancedFoldout, "Advanced" );
             EditorGUILayout.EndFoldoutHeaderGroup();
-            if (_advancedFoldout) {
-                
-                // group prop
-                using (new EditorGUILayout.HorizontalScope()) {
-                    var isGrouped = groupProp.intValue != 0;
-                    using (var check = new EditorGUI.ChangeCheckScope()) {
-                        using (new LabelWidth( 50 ))
-                            isGrouped = EditorGUILayout.Toggle( new GUIContent( "Group", groupProp.tooltip ), isGrouped, GUILayout.Width( 80 ) );
-                        if (check.changed) groupProp.intValue = isGrouped ? 1 : 0;
+            using (new EditorGUI.DisabledGroupScope( Application.isPlaying )) {
+                if (_advancedFoldout) {
+                    
+                    // group prop
+                    using (new EditorGUILayout.HorizontalScope()) {
+                        var isGrouped = groupProp.intValue != 0;
+                        using (var check = new EditorGUI.ChangeCheckScope()) {
+                            using (new LabelWidth( 50 ))
+                                isGrouped = EditorGUILayout.Toggle( new GUIContent( "Group", groupProp.tooltip ), isGrouped, GUILayout.Width( 80 ) );
+                            if (check.changed) groupProp.intValue = isGrouped ? 1 : 0;
+                        }
+                        if (isGrouped) {
+                            using (new LabelWidth( 100 ))
+                                EditorGUILayout.PropertyField( groupProp );
+                        }
                     }
-                    if (isGrouped) {
-                        using (new LabelWidth( 100 ))
-                            EditorGUILayout.PropertyField( groupProp );
-                    }
+                    
                 }
-                
             }
         }
 
