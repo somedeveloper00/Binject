@@ -1,3 +1,7 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+    #define B_DEBUG
+#endif
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,8 +16,8 @@ namespace Binject {
         [NonSerialized] static readonly Dictionary<Scene, BContext> _sceneRootContexts = new( 4 );
         [NonSerialized] static BContext _rootContext;
 
-#if UNITY_EDITOR
-        const bool DEBUG_LOG = false; 
+#if B_DEBUG
+        const bool DEBUG_LOG = true; 
 #endif
 
         /// <summary>
@@ -28,18 +32,30 @@ namespace Binject {
                 return context.transform == transform && context.HasDependency<T>();
             }
 
-            do {
-                for (int i = 0; i < _contexts.Count; i++)
-                    if (isTheCorrectContext( _contexts[i] )) return _contexts[i];
-
-                if (!transform.parent && transform != _rootContext.transform) {
-                    // root context check
+            if (_contexts.Count != 0) {
+                // check parents
+                while (true) {
+                    for (int i = 0; i < _contexts.Count; i++)
+                        if (isTheCorrectContext( _contexts[i] )) return _contexts[i];
+                    if (transform.parent) transform = transform.parent;
+                    else break;
+                } 
+                
+                // check scene root context
+                if (_sceneRootContexts.Count > 0 && 
+                    _sceneRootContexts.TryGetValue( transform.gameObject.scene, out var sceneRootContext )
+                    && transform != sceneRootContext.transform) 
+                {
+                    transform = sceneRootContext.transform;
+                    if (isTheCorrectContext( sceneRootContext )) return sceneRootContext;
+                }
+                
+                // check root context
+                if (_rootContext && transform != _rootContext.transform) {
                     transform = _rootContext.transform;
                     if (isTheCorrectContext( _rootContext )) return _rootContext;
                 }
-
-                transform = transform.parent;
-            } while (transform);
+            }
 
             Debug.LogWarning( $"No context found containing the dependency type {typeof(T).FullName}" );
 
@@ -130,93 +146,119 @@ namespace Binject {
         
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static void GetDependencies<T1, T2>(this Component component, out T1 t1, out T2 t2)
+        public static (T1, T2) GetDependencies<T1, T2>(this Component component)
             where T1 : IBDependency
             where T2 : IBDependency 
         {
-            (t1, t2) = GetDependencies<T1, T2>( component.transform );
+            return GetDependencies<T1, T2>( component.transform );
         }
         
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static void GetDependencies<T1, T2, T3>(this Component component, out T1 t1, out T2 t2, out T3 t3)
+        public static (T1, T2, T3) GetDependencies<T1, T2, T3>(this Component component)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
         {
-            (t1, t2, t3) = GetDependencies<T1, T2, T3>( component.transform );
+            return GetDependencies<T1, T2, T3>( component.transform );
         }
 
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static void GetDependencies<T1, T2, T3, T4>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4)
+        public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(this Component component)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
             where T4 : IBDependency 
         {
-            (t1, t2, t3, t4) = GetDependencies<T1, T2, T3, T4>( component.transform );
+            return GetDependencies<T1, T2, T3, T4>( component.transform );
         }
 
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static void GetDependencies<T1, T2, T3, T4, T5>(this Component component, out T1 t1, out T2 t2, out T3 t3, out T4 t4, out T5 t5)
+        public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(this Component component)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
             where T4 : IBDependency 
             where T5 : IBDependency 
         {
-            (t1, t2, t3, t4, t5) = GetDependencies<T1, T2, T3, T4, T5>( component.transform );
+            return GetDependencies<T1, T2, T3, T4, T5>( component.transform );
         }
 
 #endregion
 
         
         internal static void AddContext(BContext context) {
-#if UNITY_EDITOR
+#if B_DEBUG
             if (DEBUG_LOG) {
                 Debug.Log( $"adding {context.name} to [{string.Join( ", ", _contexts.Select( c => c.name ) )}]" );
             }
 #endif
             _contexts.Add( context );
+            UpdateSceneRootContexts();
             UpdateRootContext();
         }
 
         internal static void RemoveContext(BContext context) {
-#if UNITY_EDITOR
+#if B_DEBUG
             if (DEBUG_LOG) {
-                Debug.Log( $"removing {context.name} from [{string.Join( ", ", _contexts.Select( c => c.name ) )}]" );
+                Debug.Log( $"removing {(context ? context.name : "null")} from [{string.Join( ", ", _contexts.Select( c => c ? c.name : "null" ) )}]" );
             }
 #endif
-            var ind = _contexts.IndexOf( context );
-            _contexts.RemoveAt( ind );
+            _contexts.Remove( context );
+            UpdateSceneRootContexts();
+            UpdateRootContext();
         }
 
 
         /// <summary>
-        /// Sorts contexts based on their hierarchy depth and index.
+        /// Updates <see cref="_sceneRootContexts"/>
         /// </summary>
-        internal static void UpdateRootContext() {
-#if UNITY_EDITOR
-            bool changed = false;
-#endif
-            int rootContextHierarchyOrder = _rootContext ? GetHierarchyOrder( _rootContext.transform ) : int.MaxValue;
+        internal static void UpdateSceneRootContexts() {
+            _sceneRootContexts.Clear();
+            Dictionary<Scene, int> sceneRootHierarchyOrders = new( 4 );
+            for (int i = 0; i < SceneManager.sceneCount; i++) {
+                _sceneRootContexts.Add( SceneManager.GetSceneAt( i ), null );
+                sceneRootHierarchyOrders.Add( SceneManager.GetSceneAt( i ), int.MaxValue );
+            }
             for (int i = 0; i < _contexts.Count; i++) {
-                if (!ReferenceEquals( _rootContext, _contexts[i] )) {
-                    var order = GetHierarchyOrder( _contexts[i].transform );
-                    if (rootContextHierarchyOrder > order) {
-                        rootContextHierarchyOrder = order;
-                        _rootContext = _contexts[i];
-#if UNITY_EDITOR
-                        changed = true;
-#endif
-                    }
+                var order = GetHierarchyOrder( _contexts[i].transform );
+                var scene = _contexts[i].gameObject.scene;
+                if (sceneRootHierarchyOrders[scene] > order) {
+                    sceneRootHierarchyOrders[scene] = order;
+                    _sceneRootContexts[scene] = _contexts[i];
                 }
             }
-#if UNITY_EDITOR
-            if (DEBUG_LOG && changed) {
-                Debug.Log( $"root updated: {_rootContext.name}" );
+
+#if B_DEBUG
+            if (DEBUG_LOG) {
+                Debug.Log( $"scene root contexts: [{string.Join( ", ", _sceneRootContexts.Select( s => $"{s.Key.name}:{(s.Value ? s.Value.name : "null")}" ) )}]" );
+            }
+#endif
+        }
+
+        /// <summary>
+        /// Updates <see cref="_rootContext"/> based on <see cref="_sceneRootContexts"/>. Be sure to use this after
+        /// <see cref="UpdateSceneRootContexts"/>.
+        /// </summary>
+        internal static void UpdateRootContext() {
+            // save scene indexes
+            Dictionary<Scene, int> sceneOrder = new( _sceneRootContexts.Count );
+            for (int i = 0; i < SceneManager.sceneCount; i++) 
+                sceneOrder.Add( SceneManager.GetSceneAt( i ), i );
+            // find first index
+            int rootContextSceneIndex = int.MaxValue;
+            foreach (var (scene, context) in _sceneRootContexts) {
+                var order = sceneOrder[scene];
+                if (rootContextSceneIndex > order) {
+                    rootContextSceneIndex = order;
+                    _rootContext = context;
+                }
+            }
+#if B_DEBUG
+            if (DEBUG_LOG) {
+                Debug.Log( $"root context is {_rootContext?.name ?? "null"}" );
             }
 #endif
         }
