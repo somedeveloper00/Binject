@@ -25,18 +25,23 @@ namespace Binject {
         /// <see cref="Transform"/>. returns null if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static BContext FindContext<T>(Transform transform) where T : IBDependency {
+        public static BContext FindContext<T>(Transform transform, ushort groupNumber) where T : IBDependency {
             
             [MethodImpl( MethodImplOptions.AggressiveInlining)]
             bool isTheCorrectContext(BContext context) {
                 return context.transform == transform && context.HasDependency<T>();
+            }
+            [MethodImpl( MethodImplOptions.AggressiveInlining)]
+            bool isSameGroup(BContext context) {
+                return groupNumber == 0 || groupNumber == context.Group;
             }
 
             if (_contexts.Count != 0) {
                 // check parents
                 while (true) {
                     for (int i = 0; i < _contexts.Count; i++)
-                        if (isTheCorrectContext( _contexts[i] )) return _contexts[i];
+                        if (isSameGroup( _contexts[i] ) && isTheCorrectContext( _contexts[i] )) 
+                            return _contexts[i];
                     if (transform.parent) transform = transform.parent;
                     else break;
                 } 
@@ -44,13 +49,14 @@ namespace Binject {
                 // check scene root context
                 if (_sceneRootContexts.Count > 0 && 
                     _sceneRootContexts.TryGetValue( transform.gameObject.scene, out var sceneRootContext )
-                    && transform != sceneRootContext.transform) 
+                    && sceneRootContext && transform != sceneRootContext.transform) 
                 {
                     transform = sceneRootContext.transform;
-                    if (isTheCorrectContext( sceneRootContext )) return sceneRootContext;
+                    if (isSameGroup( sceneRootContext ) && isTheCorrectContext( sceneRootContext )) 
+                        return sceneRootContext;
                 }
                 
-                // check root context
+                // check root context (no group check | last resort)
                 if (_rootContext && transform != _rootContext.transform) {
                     transform = _rootContext.transform;
                     if (isTheCorrectContext( _rootContext )) return _rootContext;
@@ -68,8 +74,8 @@ namespace Binject {
         /// Returns the dependency of type <see cref="T"/> from a compatible context. returns default if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static T GetDependency<T>(Transform transform) where T : IBDependency {
-            var context = FindContext<T>( transform );
+        public static T GetDependency<T>(Transform transform, ushort groupNumber = 0) where T : IBDependency {
+            var context = FindContext<T>( transform, groupNumber );
             if (context == null) return default;
             return context.GetDependencyNoCheck<T>();
         }
@@ -78,8 +84,8 @@ namespace Binject {
         /// Checks if the dependency of type <see cref="T"/> exists in a compatible context.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(Transform transform) where T : IBDependency {
-            var context = FindContext<T>( transform );
+        public static bool DependencyExists<T>(Transform transform, ushort groupNumber = 0) where T : IBDependency {
+            var context = FindContext<T>( transform, groupNumber );
             return context != null;
         }
         
@@ -88,44 +94,44 @@ namespace Binject {
         /// if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2) GetDependencies<T1, T2>(Transform transform)
+        public static (T1, T2) GetDependencies<T1, T2>(Transform transform, ushort groupNumber = 0)
             where T1 : IBDependency
             where T2 : IBDependency 
         {
-            return (GetDependency<T1>( transform ), GetDependency<T2>( transform ));
+            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ));
         }
 
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3) GetDependencies<T1, T2, T3>(Transform transform)
+        public static (T1, T2, T3) GetDependencies<T1, T2, T3>(Transform transform, ushort groupNumber = 0)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
         {
-            return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ));
+            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ));
         }
 
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(Transform transform)
+        public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(Transform transform, ushort groupNumber = 0)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
             where T4 : IBDependency 
         {
-            return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ));
+            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ), GetDependency<T4>( transform, groupNumber ));
         }
 
         /// <inheritdoc cref="GetDependencies{T1,T2}(UnityEngine.Transform)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(Transform transform)
+        public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(Transform transform, ushort groupNumber = 0)
             where T1 : IBDependency
             where T2 : IBDependency 
             where T3 : IBDependency 
             where T4 : IBDependency 
             where T5 : IBDependency 
         {
-            return (GetDependency<T1>( transform ), GetDependency<T2>( transform ), GetDependency<T3>( transform ), GetDependency<T4>( transform ), GetDependency<T5>( transform ));
+            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ), GetDependency<T4>( transform, groupNumber ), GetDependency<T5>( transform, groupNumber ));
         }
 
 #endregion

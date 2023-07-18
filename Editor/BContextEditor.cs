@@ -15,8 +15,10 @@ namespace BinjectEditor {
         
         SerializedProperty dataDependenciesProp;
         SerializedProperty objectDependenciesProp;
+        SerializedProperty groupProp;
         ReorderableList _dataList;
         ReorderableList _objectList;
+        bool _advancedFoldout;
         
         static GUIStyle _headerStyle;
         static GUIContent _objectListHeaderGuiContent;
@@ -97,7 +99,7 @@ namespace BinjectEditor {
                 var menu = new GenericMenu();
                 for (int i = 0; i < AllNonObjectDependencyTypes.Length; i++) {
                     int index = i;
-                    bool typeAlreadyIncluded = _context.dataDependencies.Any( d => d.GetType() == AllNonObjectDependencyTypes[index] );
+                    bool typeAlreadyIncluded = _context.DataDependencies.Any( d => d.GetType() == AllNonObjectDependencyTypes[index] );
                     if (typeAlreadyIncluded) {
                         menu.AddDisabledItem( AllNonObjectDependencyTypesNames[i], false );
                     } else {
@@ -147,8 +149,9 @@ namespace BinjectEditor {
         public override void OnInspectorGUI() {
             if ( dataDependenciesProp == null ) { 
                 _context = (BContext)target;
-                dataDependenciesProp = serializedObject.FindProperty( nameof(BContext.dataDependencies) );
-                objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.objectDependencies) );
+                dataDependenciesProp = serializedObject.FindProperty( nameof(BContext.DataDependencies) );
+                objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.ObjectDependencies) );
+                groupProp = serializedObject.FindProperty( nameof(BContext.Group) );
                 SetupDataList();
                 SetupObjectList();
             }
@@ -157,7 +160,30 @@ namespace BinjectEditor {
             serializedObject.Update();
             _dataList.DoLayoutList();
             _objectList.DoLayoutList();
+            DrawAdvanced();
             serializedObject.ApplyModifiedProperties();
+        }
+
+        void DrawAdvanced() {
+            _advancedFoldout = EditorGUILayout.BeginFoldoutHeaderGroup( _advancedFoldout, "Advanced" );
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            if (_advancedFoldout) {
+                
+                // group prop
+                using (new EditorGUILayout.HorizontalScope()) {
+                    var isGrouped = groupProp.intValue != 0;
+                    using (var check = new EditorGUI.ChangeCheckScope()) {
+                        using (new LabelWidth( 50 ))
+                            isGrouped = EditorGUILayout.Toggle( new GUIContent( "Group", groupProp.tooltip ), isGrouped, GUILayout.Width( 80 ) );
+                        if (check.changed) groupProp.intValue = isGrouped ? 1 : 0;
+                    }
+                    if (isGrouped) {
+                        using (new LabelWidth( 100 ))
+                            EditorGUILayout.PropertyField( groupProp );
+                    }
+                }
+                
+            }
         }
 
         static void InitStylesIfNotAlready() {
@@ -176,5 +202,15 @@ namespace BinjectEditor {
                 ) ).ToArray();
         
         static GUIContent[] AllNonObjectDependencyTypesNames = AllNonObjectDependencyTypes.Select( type => new GUIContent( type.FullName.Replace( '.', '/' ) ) ).ToArray();
+
+
+        class LabelWidth : IDisposable {
+            float w;
+            public LabelWidth(float width) {
+                w = EditorGUIUtility.labelWidth;
+                EditorGUIUtility.labelWidth = width;
+            }
+            public void Dispose() => EditorGUIUtility.labelWidth = w;
+        }
     }
 }
