@@ -1,12 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Binject;
 using UnityEditor;
+using UnityEditor.IMGUI.Controls;
 using UnityEditorInternal;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace BinjectEditor {
     [CustomEditor( typeof(BContext) )]
@@ -23,6 +22,20 @@ namespace BinjectEditor {
         static GUIStyle _headerStyle;
         static GUIContent _objectListHeaderGuiContent;
         static GUIContent _dataListHeaderGuiContent;
+
+        static TypeSelectDropDown _classTypeDropDown = new( new AdvancedDropdownState(),
+            filter: type =>
+                type.IsClass && !type.IsAbstract && !type.IsSubclassOf( typeof(UnityEngine.Object) ) &&
+                !type.ContainsGenericParameters && !type.IsSubclassOf( typeof(Attribute) ) &&           // can't instantiate generic types or attributes
+                type.Assembly.GetName().Name != "mscorlib" &&                                           // mscorlib is too low-level to inject
+                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&
+                !type.FullName.Contains( '+' ) &&                                                       // compiler-generated types
+                type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&
+                !type.IsSubclassOf( typeof(Exception) ) &&                                              // no need to inject exceptions
+                !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) ) &&      // no need to inject disposables
+                type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                        // should be able to construct
+        );
+
         
         void SetupDataList() {
             _dataList = new ReorderableList( serializedObject, dataDependenciesProp,
@@ -96,24 +109,16 @@ namespace BinjectEditor {
             };
 
             _dataList.onAddDropdownCallback += (_, _) => {
-                var menu = new GenericMenu();
-                for (int i = 0; i < AllNonObjectDependencyTypes.Length; i++) {
-                    int index = i;
-                    bool typeAlreadyIncluded = _context.DataDependencies.Any( d => d.GetType() == AllNonObjectDependencyTypes[index] );
-                    if (typeAlreadyIncluded) {
-                        menu.AddDisabledItem( AllNonObjectDependencyTypesNames[i], false );
-                    } else {
-                        menu.AddItem( AllNonObjectDependencyTypesNames[i], false, () => {
-                            var dependency = Activator.CreateInstance( AllNonObjectDependencyTypes[index] ) as IBDependency;
-                            dataDependenciesProp.arraySize++;
-                            dataDependenciesProp.GetArrayElementAtIndex( dataDependenciesProp.arraySize - 1 )
-                                .managedReferenceValue = dependency;
-                            serializedObject.ApplyModifiedProperties();
-                        } );
-                    }
-                }
-
-                menu.ShowAsContext();
+                _classTypeDropDown.Show( new Rect( Event.current.mousePosition, Vector2.zero ),
+                    onSelect: type => {
+                        if (type == null) return;
+                        var dependency = Activator.CreateInstance( type );
+                        if (dependency == null) return;
+                        dataDependenciesProp.arraySize++;
+                        dataDependenciesProp.GetArrayElementAtIndex( dataDependenciesProp.arraySize - 1 )
+                            .managedReferenceValue = dependency;
+                        serializedObject.ApplyModifiedProperties();
+                    } );
             };
 
         }
@@ -200,7 +205,7 @@ namespace BinjectEditor {
             .SelectMany( assembly => assembly.GetTypes()
                 .Where( type => type.GetInterfaces().Contains( typeof(IBDependency) )
                                 && type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&
-                                !type.IsSubclassOf( typeof(Object) )
+                                !type.IsSubclassOf( typeof(UnityEngine.Object) )
                 ) ).ToArray();
         
         static GUIContent[] AllNonObjectDependencyTypesNames = AllNonObjectDependencyTypes.Select( type => new GUIContent( type.FullName.Replace( '.', '/' ) ) ).ToArray();

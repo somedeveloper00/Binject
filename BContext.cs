@@ -44,13 +44,13 @@ namespace Binject {
             for (int i = 0; i < DataDependencies.Count - 1; i++)
             for (int j = i + 1; j < DataDependencies.Count; j++)
                 if (DataDependencies[i].GetType() == DataDependencies[j].GetType()) {
-                    sb.AppendLine( $"    - Data at {j}: duplicate of {i}" );
+                    sb.AppendLine( $"    - Data at [{j}]: duplicate of [{i}]" );
                     DataDependencies.RemoveAt( j-- );
                 }
             for (int i = 0; i < ObjectDependencies.Count - 1; i++)
             for (int j = i + 1; j < ObjectDependencies.Count; j++)
                 if (ObjectDependencies[i].GetType() == ObjectDependencies[j].GetType()) {
-                    sb.AppendLine( $"    - Object at {j}: duplicate of {i}" );
+                    sb.AppendLine( $"    - Object at [{j}]: duplicate of [{i}]" );
                     ObjectDependencies.RemoveAt( j-- );
                 }
 
