@@ -168,7 +168,7 @@ namespace Binject {
         /// performance.
         /// </summary>
         public void BindStruct<T>(T dependency) where T : struct {
-            if (_dependencyTypes.Add( dependency.GetType() )) {
+            if (_dependencyTypes.Add( typeof(T) )) {
                 // new type
                 _structDependencies.Add( new RealStructHolder<T>( dependency ) );
 #if UNITY_EDITOR

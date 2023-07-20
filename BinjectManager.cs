@@ -22,15 +22,15 @@ namespace Binject {
 #endif
 
         /// <summary>
-        /// Topmost scene. can be used to detect the top root context
+        /// Topmost scene handle. can be used to detect the top root context
         /// </summary>
-        [NonSerialized] static Scene _topMostScene;
+        [NonSerialized] static int _topMostScene;
         
         /// <summary>
-        /// Contexts grouped per scene. index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
+        /// Contexts grouped per scene (key is <see cref="Scene.handle"/>). index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<Scene, List<BContext>> _sceneContexts = new( 64 );
+        [NonSerialized] static readonly Dictionary<int, List<BContext>> _sceneContexts = new( 64 );
         
         /// <summary>
         /// contexts grouped per <see cref="BContext.Group"/>. only groups with at least 1 <see cref="BContext"/> are
@@ -45,7 +45,7 @@ namespace Binject {
         /// on this gameObject instead.
         /// </summary>
         public static BContext GetSceneRootContext(Transform transform) {
-            if (_sceneContexts.TryGetValue( transform.gameObject.scene, out var list ))
+            if (_sceneContexts.TryGetValue( transform.gameObject.scene.handle, out var list ))
                 return list[0];
 #if WARN
             Debug.LogWarning( $"No context found in scene {transform.gameObject.scene}, Creating a new " +
@@ -64,7 +64,7 @@ namespace Binject {
                 goto CreateComponent;
             }
 
-            if (_sceneContexts.TryGetValue( transform.gameObject.scene, out var contextsInScene )) {
+            if (_sceneContexts.TryGetValue( transform.gameObject.scene.handle, out var contextsInScene )) {
                 var originalTransform = transform;
                 // parents
                 while (transform) {
@@ -107,7 +107,7 @@ namespace Binject {
             var scene = transform.gameObject.scene;
             
             // search in scene
-            if (_sceneContexts.TryGetValue( scene, out var contextsInScene )) {
+            if (_sceneContexts.TryGetValue( scene.handle, out var contextsInScene )) {
                 
                 // check parents
                 while (transform) {
@@ -126,7 +126,7 @@ namespace Binject {
             }
 
             // check topmost scene root context
-            if (_topMostScene != scene) {
+            if (_topMostScene != scene.handle) {
                 var root = _sceneContexts[_topMostScene][0];
                 if (isCorrectGroup( root, groupNumber ) && root.HasDependency<T>())
                     return root;
@@ -160,8 +160,8 @@ namespace Binject {
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
                 _groupedContexts[context.Group] = glist = new List<BContext>( 4 );
             glist.Add( context );
-            if (!_sceneContexts.TryGetValue( context.gameObject.scene, out var slist ))
-                _sceneContexts[context.gameObject.scene] = slist = new List<BContext>( 4 );
+            if (!_sceneContexts.TryGetValue( context.gameObject.scene.handle, out var slist ))
+                _sceneContexts[context.gameObject.scene.handle] = slist = new List<BContext>( 4 );
             slist.Add( context );
 
             UpdateAllRootContextsAndTopmostScene();
@@ -182,10 +182,10 @@ namespace Binject {
                 if (changed && glist.Count == 0)
                     _groupedContexts.Remove( context.Group );
             }
-            if (_sceneContexts.TryGetValue( context.gameObject.scene, out var slist )) {
+            if (_sceneContexts.TryGetValue( context.gameObject.scene.handle, out var slist )) {
                 changed |= slist.Remove( context );
                 if (changed && slist.Count == 0) 
-                    _sceneContexts.Remove( context.gameObject.scene );
+                    _sceneContexts.Remove( context.gameObject.scene.handle );
             }
 
             if (changed) UpdateAllRootContextsAndTopmostScene();
@@ -237,11 +237,11 @@ namespace Binject {
                 
                 // resolving topmost scene right here
                 var scene = SceneManager.GetSceneAt( i );
-                if (!foundTopmostScene && _sceneContexts.ContainsKey( scene )) {
+                if (!foundTopmostScene && _sceneContexts.ContainsKey( scene.handle )) {
 #if B_DEBUG
-                    if (_topMostScene != scene) Debug.Log( $"Topmost scene changed: {scene.name}" );
+                    if (_topMostScene != scene.handle) Debug.Log( $"Topmost scene changed: {scene.name}" );
 #endif
-                    _topMostScene = scene;
+                    _topMostScene = scene.handle;
                     foundTopmostScene = true;
                 }
             }
@@ -331,7 +331,7 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static bool TryGetDependencyStruct<T>(Transform transform, out T result, ushort groupNumber = 0) where T : struct {
             var context = FindContext<T>( transform, groupNumber );
-            result = context?.GetDependencyStructNoCheck<T>() ?? default;
+            result = context == null ? default : context.GetDependencyStructNoCheck<T>();
             return context is not null;
         }
 
@@ -362,12 +362,12 @@ namespace Binject {
         /// <inheritdoc cref="TryGetDependency{T}(UnityEngine.Transform,out T,ushort)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static bool TryGetDependency<T>(this Component component, out T result, ushort groupNumber = 0) => 
-            TryGetDependency<T>( component.transform, out result, groupNumber );
+            TryGetDependency( component.transform, out result, groupNumber );
         
         /// <inheritdoc cref="TryGetDependencyStruct{T}(UnityEngine.Transform,out T,ushort)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static bool TryGetDependencyStruct<T>(this Component component, out T result, ushort groupNumber = 0) where T : struct => 
-            TryGetDependencyStruct<T>( component.transform, out result, groupNumber );
+            TryGetDependencyStruct( component.transform, out result, groupNumber );
 
         /// <inheritdoc cref="DependencyExists{T}(UnityEngine.Transform,ushort)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
