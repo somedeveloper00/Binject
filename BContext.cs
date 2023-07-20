@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Binject {
     /// <summary>
@@ -17,48 +19,69 @@ namespace Binject {
         [Tooltip( "used for when you want to use a specific context but don't have access to it directly; you can find " +
                   "it using it's Group number." )]
         [SerializeField] internal ushort Group;
-        
-        [Tooltip( "List of injectable non Unity Object data as dependency." )]
-        [SerializeReference] internal List<object> DataDependencies = new( 8 );
-         
+
+        [FormerlySerializedAs( "ObjectDependencies" )]
         [Tooltip( "List of injectable Unity Objects as dependency." )]
-        [SerializeField] internal List<UnityEngine.Object> ObjectDependencies = new( 8 );
+        [SerializeField] internal List<UnityEngine.Object> UnityObjectDependencies = new( 8 );
 
-        readonly List<StructHolder> _structDependencies = new( 8 );
+        [Tooltip( "List of injectable non Unity Object classes as dependency." )]
+        [SerializeReference] internal List<object> ClassDependencies = new( 8 );
+
+        [FormerlySerializedAs( "StructDependencies" )]
+        [Tooltip( "List of injectable value types (struct) as dependency.\n" +
+                  "Elements added from inspector will be boxed." )]
+        [SerializeReference] internal List<BoxedStructHolder> StructDependencies_Serializaded = new( 8 );
         
-        readonly HashSet<Type> _dependencyTypes = new( 16 );
-
-        [NonSerialized] bool _initialized; 
+        
+        [NonSerialized] readonly List<StructHolder> _structDependencies = new( 8 );
+        [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16 );
+        [NonSerialized] bool _initialized;
 
 #if UNITY_EDITOR
         void OnValidate() {
             if (Application.isPlaying) return;
-            
+
             // fix broken lists
             StringBuilder sb = new( 128 );
-            for (int i = 0; i < DataDependencies.Count; i++)
-                if (DataDependencies[i] == null) {
-                    sb.AppendLine( $"    - Data at {i}: was null" );
-                    DataDependencies.RemoveAt( i-- );
+            for (int i = 0; i < UnityObjectDependencies.Count; i++)
+                if (UnityObjectDependencies[i] == null) {
+                    sb.AppendLine( $"    - Unity Object at {i}: was null" );
+                    UnityObjectDependencies.RemoveAt( i-- );
+                }
+            for (int i = 0; i < ClassDependencies.Count; i++)
+                if (ClassDependencies[i] == null) {
+                    sb.AppendLine( $"    - class at {i}: was null" );
+                    ClassDependencies.RemoveAt( i-- );
+                }
+            for (int i = 0; i < _structDependencies.Count; i++)
+                if (_structDependencies[i].BoxAndGetValue() == null) {
+                    sb.AppendLine( $"    - struct at {i}: was null" );
+                    _structDependencies.RemoveAt( i-- );
                 }
 
             // delete duplicates
-            for (int i = 0; i < DataDependencies.Count - 1; i++)
-            for (int j = i + 1; j < DataDependencies.Count; j++)
-                if (DataDependencies[i].GetType() == DataDependencies[j].GetType()) {
-                    sb.AppendLine( $"    - Data at [{j}]: duplicate of [{i}]" );
-                    DataDependencies.RemoveAt( j-- );
+            for (int i = 0; i < UnityObjectDependencies.Count - 1; i++)
+            for (int j = i + 1; j < UnityObjectDependencies.Count; j++)
+                if (UnityObjectDependencies[i].GetType() == UnityObjectDependencies[j].GetType()) {
+                    sb.AppendLine( $"    - Unity Object at [{j}]: duplicate of [{i}]" );
+                    UnityObjectDependencies.RemoveAt( j-- );
                 }
-            for (int i = 0; i < ObjectDependencies.Count - 1; i++)
-            for (int j = i + 1; j < ObjectDependencies.Count; j++)
-                if (ObjectDependencies[i].GetType() == ObjectDependencies[j].GetType()) {
-                    sb.AppendLine( $"    - Object at [{j}]: duplicate of [{i}]" );
-                    ObjectDependencies.RemoveAt( j-- );
+            for (int i = 0; i < ClassDependencies.Count - 1; i++)
+            for (int j = i + 1; j < ClassDependencies.Count; j++)
+                if (ClassDependencies[i].GetType() == ClassDependencies[j].GetType()) {
+                    sb.AppendLine( $"    - class at [{j}]: duplicate of [{i}]" );
+                    ClassDependencies.RemoveAt( j-- );
                 }
-
+            for (int i = 0; i < _structDependencies.Count - 1; i++)
+            for (int j = i + 1; j < _structDependencies.Count; j++)
+                if (_structDependencies[i].GetValueType() == _structDependencies[j].GetValueType()) {
+                    sb.AppendLine( $"    - struct at [{j}]: duplicate of [{i}]" );
+                    _structDependencies.RemoveAt( j-- );
+                }
+                
             if (sb.Length > 0) 
                 Debug.LogWarning( $"Binject Context of {name} removed some dependencies:\n{sb}" );
-            
+                
             // support in-editor injection
             if (!_initialized) { 
                 SyncAllDependencyTypes( true );
@@ -70,6 +93,7 @@ namespace Binject {
 #endif
 
         void Awake() {
+            _structDependencies.AddRange( StructDependencies_Serializaded );
             if (!_initialized) {
                 SyncAllDependencyTypes( true );
                 BinjectManager.AddContext( this );
@@ -99,12 +123,16 @@ namespace Binject {
         public void Bind<T>(T dependency) {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
-                if (typeof(T).IsValueType) 
+                if (typeof(T).IsValueType) {
                     _structDependencies.Add( new BoxedStructHolder( dependency ) );
+#if UNITY_EDITOR
+                    StructDependencies_Serializaded.Add( new BoxedStructHolder( dependency ) );
+#endif
+                }
                 else if (IsUnityObjectType( dependency.GetType() ))
-                    ObjectDependencies.Add( dependency as UnityEngine.Object );
+                    UnityObjectDependencies.Add( dependency as UnityEngine.Object );
                 else
-                    DataDependencies.Add( dependency );
+                    ClassDependencies.Add( dependency );
             } else {
                 // override previous of same type
                 if (typeof(T).IsValueType) {
@@ -116,16 +144,16 @@ namespace Binject {
                     }
                 }
                 else if (IsUnityObjectType( dependency.GetType() )) {
-                    for (int i = 0; i < ObjectDependencies.Count; i++) {
-                        if (ObjectDependencies[i].GetType() == dependency.GetType()) {
-                            ObjectDependencies[i] = dependency as UnityEngine.Object;
+                    for (int i = 0; i < UnityObjectDependencies.Count; i++) {
+                        if (UnityObjectDependencies[i].GetType() == dependency.GetType()) {
+                            UnityObjectDependencies[i] = dependency as UnityEngine.Object;
                             break;
                         }
                     }
                 } else {
-                    for (int i = 0; i < DataDependencies.Count; i++) {
-                        if (DataDependencies[i].GetType() == dependency.GetType()) {
-                            DataDependencies[i] = dependency;
+                    for (int i = 0; i < ClassDependencies.Count; i++) {
+                        if (ClassDependencies[i].GetType() == dependency.GetType()) {
+                            ClassDependencies[i] = dependency;
                             break;
                         }
                     }
@@ -143,6 +171,9 @@ namespace Binject {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
                 _structDependencies.Add( new RealStructHolder<T>( dependency ) );
+#if UNITY_EDITOR
+                StructDependencies_Serializaded.Add( new BoxedStructHolder( dependency ) );
+#endif
             } else {
                 // override previous of same type
                 for (int i = 0; i < _structDependencies.Count; i++) {
@@ -163,21 +194,24 @@ namespace Binject {
                     for (int i = 0; i < _structDependencies.Count; i++) {
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
                             _structDependencies.RemoveAt( i );
+#if UNITY_EDITOR
+                            StructDependencies_Serializaded.RemoveAt( i );
+#endif
                             return;
                         }
                     }
                 }
                 if (IsUnityObjectType( typeof(T) )) {
-                    for (int i = 0; i < ObjectDependencies.Count; i++) {
-                        if (ObjectDependencies[i].GetType() == typeof(T)) {
-                            ObjectDependencies.RemoveAt( i );
+                    for (int i = 0; i < UnityObjectDependencies.Count; i++) {
+                        if (UnityObjectDependencies[i].GetType() == typeof(T)) {
+                            UnityObjectDependencies.RemoveAt( i );
                             return;
                         }
                     }
                 } else {
-                    for (int i = 0; i < DataDependencies.Count; i++) {
-                        if (DataDependencies[i].GetType() == typeof(T)) {
-                            DataDependencies.RemoveAt( i );
+                    for (int i = 0; i < ClassDependencies.Count; i++) {
+                        if (ClassDependencies[i].GetType() == typeof(T)) {
+                            ClassDependencies.RemoveAt( i );
                             return;
                         }
                     }
@@ -245,10 +279,10 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         internal void SyncAllDependencyTypes(bool clear) {
             if (clear) _dependencyTypes.Clear();
-            for (int i = 0; i < DataDependencies.Count; i++)
-                _dependencyTypes.Add( DataDependencies[i].GetType() );
-            for (int i = 0; i < ObjectDependencies.Count; i++) 
-                _dependencyTypes.Add( ObjectDependencies[i].GetType() );
+            for (int i = 0; i < ClassDependencies.Count; i++)
+                _dependencyTypes.Add( ClassDependencies[i].GetType() );
+            for (int i = 0; i < UnityObjectDependencies.Count; i++) 
+                _dependencyTypes.Add( UnityObjectDependencies[i].GetType() );
             for (int i = 0; i < _structDependencies.Count; i++)
                 _dependencyTypes.Add( _structDependencies[i].GetValueType() );
         }
@@ -264,14 +298,14 @@ namespace Binject {
                 
             }
             if (IsUnityObjectType( typeof(T) )) {
-                for (int i = 0; i < ObjectDependencies.Count; i++)
-                    if (ObjectDependencies[i] is T obj) {
+                for (int i = 0; i < UnityObjectDependencies.Count; i++)
+                    if (UnityObjectDependencies[i] is T obj) {
                         result = obj;
                         return true;
                     }
             } else {
-                for (int i = 0; i < DataDependencies.Count; i++)
-                    if (DataDependencies[i] is T dat) {
+                for (int i = 0; i < ClassDependencies.Count; i++)
+                    if (ClassDependencies[i] is T dat) {
                         result = dat;
                         return true;
                     }

@@ -6,13 +6,12 @@
     #define WARN
 #endif
 
-
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.CompilerServices;
 using UnityEngine;
+using System.Linq;
+using System.Collections.Generic;
 using UnityEngine.SceneManagement;
+using System.Runtime.CompilerServices;
 
 namespace Binject {
     [ExecuteAlways] 
@@ -39,16 +38,31 @@ namespace Binject {
         /// </summary>
         [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 64 );
 
+#region Publics
+
         /// <summary>
-        /// Finds the first context in self or it's parent. it'll go to other scenes if didn't find any. if nothing was
-        /// found, it'll create a new <see cref="BContext"/> on the given <see cref="transform"/>.
+        /// Returns the root <see cref="BContext"/> of this scene. It will create new <see cref="BContext"/> component
+        /// on this gameObject instead.
         /// </summary>
-        public static BContext GetNearestContext(Transform transform, ushort groupNumber = 0) {
+        public static BContext GetSceneRootContext(Transform transform) {
+            if (_sceneContexts.TryGetValue( transform.gameObject.scene, out var list ))
+                return list[0];
+#if WARN
+            Debug.LogWarning( $"No context found in scene {transform.gameObject.scene}, Creating a new " +
+                              $"{nameof(BContext)} component on the game object instead.", transform );
+#endif
+            return transform.gameObject.AddComponent<BContext>();
+        }
+
+        /// <summary>
+        /// Finds the first context in self or it's parent. It'll go to other scenes if didn't find any. if nothing was
+        /// found, it'll create a new <see cref="BContext"/> component on the gameObject.
+        /// </summary>
+        public static BContext FindNearestContext(Transform transform, ushort groupNumber = 0) {
             List<BContext> groupList = null;
             if (groupNumber != 0 && !_groupedContexts.TryGetValue( groupNumber, out groupList )) {
                 goto CreateComponent;
             }
-
 
             if (_sceneContexts.TryGetValue( transform.gameObject.scene, out var contextsInScene )) {
                 var originalTransform = transform;
@@ -85,8 +99,7 @@ namespace Binject {
         }
 
         /// <summary>
-        /// Finds the context holding the required dependencies of type <see cref="T"/> compatible with the given
-        /// <see cref="Transform"/>. returns null if not found any.
+        /// Finds the compatible context holding the specified dependency. returns null if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
         public static BContext FindContext<T>(Transform transform, ushort groupNumber = 0) {
@@ -131,7 +144,10 @@ namespace Binject {
 #endif
             return null;
         }
-   
+
+#endregion
+
+#region Non Publics
         
         /// <summary>
         /// Adds the context to internal lists and updates caches
@@ -174,7 +190,7 @@ namespace Binject {
 
             if (changed) UpdateAllRootContextsAndTopmostScene();
         }
-
+        
 #if B_DEBUG
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static string CreateStringListOfAllContexts() =>
@@ -208,7 +224,7 @@ namespace Binject {
                 if (index != 0) {
                     (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
 #if B_DEBUG
-                    Debug.Log( $"Root of scene '{contexts[0].gameObject.scene.name}' changed: {contexts[0].name}" );
+                    Debug.Log( $"Root of scene '{contexts[0].gameObject.scene.name}' changed: {contexts[0].name}({contexts[0].gameObject.scene.name})" );
 #endif
                 }
             }
@@ -245,7 +261,7 @@ namespace Binject {
                 if (index != 0) {
                     (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
 #if B_DEBUG
-                    Debug.Log( $"Root of group '{contexts[0].Group}' changed: {contexts[0].name}" );
+                    Debug.Log( $"Root of group '{contexts[0].Group}' changed: {contexts[0].name}({contexts[0].gameObject.scene.name})" );
 #endif
                 }
             }
@@ -270,228 +286,166 @@ namespace Binject {
 
             return order;
         }
- 
-#region Helper Functions
-
-        /// <summary>
-        /// Returns the dependency of type <see cref="T"/> from a compatible context. returns default if not found any.
-        /// </summary>
-        [MethodImpl( MethodImplOptions.AggressiveInlining)]
-        public static T GetDependency<T>(Transform transform, ushort groupNumber = 0) where T : class {
-            var context = FindContext<T>( transform, groupNumber );
-            if (context == null) return default;
-            return context.GetDependencyNoCheck<T>();
-        }
-
-        /// <summary>
-        /// Checks if the dependency of type <see cref="T"/> exists in a compatible context.
-        /// </summary>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(Transform transform, ushort groupNumber = 0) where T : class {
-            var context = FindContext<T>( transform, groupNumber );
-            return context != null;
-        }
         
+
+#endregion
+
+#region Public Helpers
+
         /// <summary>
-        /// Returns dependencies of the given type from a compatible context. for each dependency, returns default
-        /// if not found any.
+        /// Returns the dependency from a compatible context. returns default if not found any.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2) GetDependencies<T1, T2>(Transform transform, ushort groupNumber = 0)
-            where T1 : class where T2 : class 
-        {
-            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ));
+        public static T GetDependency<T>(Transform transform, ushort groupNumber = 0) {
+            var context = FindContext<T>( transform, groupNumber );
+            return context == null ? default : context.GetDependencyNoCheck<T>();
         }
 
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3) GetDependencies<T1, T2, T3>(Transform transform, ushort groupNumber = 0)
-            where T1 : class where T2 : class where T3 : class 
-        {
-            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ));
-        }
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(Transform transform, ushort groupNumber = 0)
-            where T1 : class where T2 : class where T3 : class where T4 : class 
-        {
-            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ), GetDependency<T4>( transform, groupNumber ));
-        }
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(Transform transform, ushort groupNumber = 0)
-            where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class 
-        {
-            return (GetDependency<T1>( transform, groupNumber ), GetDependency<T2>( transform, groupNumber ), GetDependency<T3>( transform, groupNumber ), GetDependency<T4>( transform, groupNumber ), GetDependency<T5>( transform, groupNumber ));
-        }
-
-        
         /// <summary>
-        /// Returns the dependency of type <see cref="T"/> from a compatible context. returns default if not found any.
+        /// Returns the dependency from a compatible context. returns default if not found any. <para/>
+        /// Use this for `struct`s to avoid boxing and get better performance.
         /// </summary>
-        [MethodImpl( MethodImplOptions.AggressiveInlining)]
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static T GetDependencyStruct<T>(Transform transform, ushort groupNumber = 0) where T : struct {
             var context = FindContext<T>( transform, groupNumber );
-            if (context == null) return default;
-            return context.GetDependencyStructNoCheck<T>();
+            return context == null ? default : context.GetDependencyStructNoCheck<T>();
         }
 
+        
         /// <summary>
-        /// Checks if the dependency of type <see cref="T"/> exists in a compatible context.
+        /// Finds the dependency from a compatible context and returns `true` if found any, and `false` if didn't.
+        /// <see cref="result"/> will be default if didn't find any. <para/>
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyStructExists<T>(Transform transform, ushort groupNumber = 0) where T : struct {
+        public static bool TryGetDependency<T>(Transform transform, out T result, ushort groupNumber = 0) {
             var context = FindContext<T>( transform, groupNumber );
-            return context != null;
+            result = context is null ? default : context.GetDependencyNoCheck<T>();
+            return context is not null;
         }
-        
+
         /// <summary>
-        /// Returns dependencies of the given type from a compatible context. for each dependency, returns default
-        /// if not found any.
+        /// Finds the dependency from a compatible context and returns `true` if found any, and `false` if didn't.
+        /// <see cref="result"/> will be default if didn't find any. <para/>
+        /// Use this for `struct`s to avoid boxing and get better performance.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2) GetDependenciesStruct<T1, T2>(Transform transform, ushort groupNumber = 0)
-            where T1 : struct where T2 : struct 
-        {
-            return (GetDependencyStruct<T1>( transform, groupNumber ), GetDependencyStruct<T2>( transform, groupNumber ));
+        public static bool TryGetDependencyStruct<T>(Transform transform, out T result, ushort groupNumber = 0) where T : struct {
+            var context = FindContext<T>( transform, groupNumber );
+            result = context?.GetDependencyStructNoCheck<T>() ?? default;
+            return context is not null;
         }
 
-        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Transform,ushort)"/>
+        /// <summary>
+        /// Checks if the dependency exists in a compatible context.
+        /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3) GetDependenciesStruct<T1, T2, T3>(Transform transform, ushort groupNumber = 0)
-            where T1 : struct where T2 : struct where T3 : struct 
-        {
-            return (GetDependencyStruct<T1>( transform, groupNumber ), GetDependencyStruct<T2>( transform, groupNumber ), GetDependencyStruct<T3>( transform, groupNumber ));
-        }
-
-        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4) GetDependenciesStruct<T1, T2, T3, T4>(Transform transform, ushort groupNumber = 0)
-            where T1 : struct where T2 : struct where T3 : struct where T4 : struct 
-        {
-            return (GetDependencyStruct<T1>( transform, groupNumber ), GetDependencyStruct<T2>( transform, groupNumber ), GetDependencyStruct<T3>( transform, groupNumber ), GetDependencyStruct<T4>( transform, groupNumber ));
-        }
-
-        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4, T5) GetDependenciesStruct<T1, T2, T3, T4, T5>(Transform transform, ushort groupNumber = 0)
-            where T1 : struct where T2 : struct where T3 : struct where T4 : struct where T5 : struct 
-        {
-            return (GetDependencyStruct<T1>( transform, groupNumber ), GetDependencyStruct<T2>( transform, groupNumber ), GetDependencyStruct<T3>( transform, groupNumber ), GetDependencyStruct<T4>( transform, groupNumber ), GetDependencyStruct<T5>( transform, groupNumber ));
+        public static bool DependencyExists<T>(Transform transform, ushort groupNumber = 0) {
+            return FindContext<T>( transform, groupNumber ) != null;
         }
 
 #endregion
 
-#region Helper Extensions
-
-#region Class Dependencies
+#region Extensions
 
         /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static T GetDependency<T>(this Component component) where T : class {
-            return GetDependency<T>( component.transform );
+        public static T GetDependency<T>(this Component component, ushort groupName = 0) {
+            return GetDependency<T>( component.transform, groupName );
+        }
+
+        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Transform,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static T GetDependencyStruct<T>(this Component component, ushort groupNumber = 0) where T : struct {
+            return GetDependencyStruct<T>( component.transform, groupNumber );
         }
         
+        /// <inheritdoc cref="TryGetDependency{T}(UnityEngine.Transform,out T,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static bool TryGetDependency<T>(this Component component, out T result, ushort groupNumber = 0) => 
+            TryGetDependency<T>( component.transform, out result, groupNumber );
+        
+        /// <inheritdoc cref="TryGetDependencyStruct{T}(UnityEngine.Transform,out T,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static bool TryGetDependencyStruct<T>(this Component component, out T result, ushort groupNumber = 0) where T : struct => 
+            TryGetDependencyStruct<T>( component.transform, out result, groupNumber );
+
         /// <inheritdoc cref="DependencyExists{T}(UnityEngine.Transform,ushort)"/>
         [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyExists<T>(this Component component) where T : class {
-            return DependencyExists<T>( component.transform );
-        }
-        
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2) GetDependencies<T1, T2>(this Component component)
-            where T1 : class where T2 : class 
-        {
-            return GetDependencies<T1, T2>( component.transform );
-        }
-        
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3) GetDependencies<T1, T2, T3>(this Component component)
-            where T1 : class where T2 : class where T3 : class 
-        {
-            return GetDependencies<T1, T2, T3>( component.transform );
+        public static bool DependencyExists<T>(this Component component, ushort groupName = 0) {
+            return DependencyExists<T>( component.transform, groupName );
         }
 
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4) GetDependencies<T1, T2, T3, T4>(this Component component)
-            where T1 : class where T2 : class where T3 : class where T4 : class 
-        {
-            return GetDependencies<T1, T2, T3, T4>( component.transform );
-        }
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4, T5) GetDependencies<T1, T2, T3, T4, T5>(this Component component)
-            where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class 
-        {
-            return GetDependencies<T1, T2, T3, T4, T5>( component.transform );
-        }
-        
-
-#endregion
-
-#region Struct Dependencies
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public static T GetDependencyStruct<T>(this Component component) where T : struct {
-            return GetDependencyStruct<T>( component.transform );
-        }
-        
-        /// <inheritdoc cref="DependencyExists{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static bool DependencyStructExists<T>(this Component component) where T : struct {
-            return DependencyStructExists<T>( component.transform );
-        }
-        
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2) GetDependenciesStruct<T1, T2>(this Component component)
-            where T1 : struct where T2 : struct 
-        {
-            return GetDependenciesStruct<T1, T2>( component.transform );
-        }
-        
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3) GetDependenciesStruct<T1, T2, T3>(this Component component)
-            where T1 : struct where T2 : struct where T3 : struct 
-        {
-            return GetDependenciesStruct<T1, T2, T3>( component.transform );
-        }
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4) GetDependenciesStruct<T1, T2, T3, T4>(this Component component)
-            where T1 : struct where T2 : struct where T3 : struct where T4 : struct 
-        {
-            return GetDependenciesStruct<T1, T2, T3, T4>( component.transform );
-        }
-
-        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
-        [MethodImpl (MethodImplOptions.AggressiveInlining )]
-        public static (T1, T2, T3, T4, T5) GetDependenciesStruct<T1, T2, T3, T4, T5>(this Component component)
-            where T1 : struct where T2 : struct where T3 : struct where T4 : struct where T5 : struct 
-        {
-            return GetDependenciesStruct<T1, T2, T3, T4, T5>( component.transform );
-        }
-
-#endregion
-
-        /// <inheritdoc cref="GetNearestContext(UnityEngine.Transform,ushort)"/>
-        public static BContext GetNearestContext(this Component component, ushort groupNumber = 0) =>
-            GetNearestContext( component.transform, groupNumber );
+        /// <inheritdoc cref="FindNearestContext(UnityEngine.Transform,ushort)"/>
+        public static BContext FindNearestContext(this Component component, ushort groupNumber = 0) =>
+            FindNearestContext( component.transform, groupNumber );
 
         /// <inheritdoc cref="FindContext{T}(UnityEngine.Transform,ushort)"/>
         public static BContext FindContext<T>(this Component component, ushort groupNumber = 0) =>
             FindContext<T>( component.transform, groupNumber );
 
+        /// <inheritdoc cref="GetSceneRootContext(UnityEngine.Transform)"/>
+        public static BContext GetSceneRootContext(this Component component) =>
+            GetSceneRootContext( component.transform );
+
+
+#region Multis
+
+        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependency<T1, T2>(this Component component, out T1 result1, out T2 result2, ushort groupName = 0) {
+            result1 = GetDependency<T1>( component.transform, groupName );
+            result2 = GetDependency<T2>( component.transform, groupName );
+        }
+
+        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependency<T1, T2, T3>(this Component component, out T1 result1, out T2 result2, out T3 result3, ushort groupName = 0) {
+            result1 = GetDependency<T1>( component.transform, groupName );
+            result2 = GetDependency<T2>( component.transform, groupName );
+            result3 = GetDependency<T3>( component.transform, groupName );
+        }
+        
+        /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependency<T1, T2, T3, T4>(this Component component, out T1 result1, out T2 result2, out T3 result3, out T4 result4, ushort groupName = 0) {
+            result1 = GetDependency<T1>( component.transform, groupName );
+            result2 = GetDependency<T2>( component.transform, groupName );
+            result3 = GetDependency<T3>( component.transform, groupName );
+            result4 = GetDependency<T4>( component.transform, groupName );
+        }
+
+        
+        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Component,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependencyStruct<T1, T2>(this Component component, out T1 result1, out T2 result2, ushort groupName = 0) 
+            where T1 : struct where T2 : struct 
+        {
+            result1 = GetDependencyStruct<T1>( component.transform, groupName );
+            result2 = GetDependencyStruct<T2>( component.transform, groupName );
+        }
+
+        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Component,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependencyStruct<T1, T2, T3>(this Component component, out T1 result1, out T2 result2, out T3 result3, ushort groupName = 0) 
+            where T1 : struct where T2 : struct where T3 : struct
+        {
+            result1 = GetDependencyStruct<T1>( component.transform, groupName );
+            result2 = GetDependencyStruct<T2>( component.transform, groupName );
+            result3 = GetDependencyStruct<T3>( component.transform, groupName );
+        }
+        
+        /// <inheritdoc cref="GetDependencyStruct{T}(UnityEngine.Component,ushort)"/>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        public static void GetDependencyStruct<T1, T2, T3, T4>(this Component component, out T1 result1, out T2 result2, out T3 result3, out T4 result4, ushort groupName = 0)  
+            where T1 : struct where T2 : struct where T3 : struct where T4 : struct
+        {
+            result1 = GetDependencyStruct<T1>( component.transform, groupName );
+            result2 = GetDependencyStruct<T2>( component.transform, groupName );
+            result3 = GetDependencyStruct<T3>( component.transform, groupName );
+            result4 = GetDependencyStruct<T4>( component.transform, groupName );
+        }
 #endregion
 
+#endregion
     }
 }
