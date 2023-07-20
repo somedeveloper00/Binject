@@ -1,10 +1,14 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD || DEBUG) && BINJECT_VERBOSE && !BINJECT_SILENT
     #define B_DEBUG
 #endif
 
+#if !BINJECT_SILENT
+    #define WARN
+#endif
+
+
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -12,14 +16,68 @@ using UnityEngine.SceneManagement;
 namespace Binject {
     [ExecuteAlways] 
     public static class BinjectManager {
-        [NonSerialized] static readonly List<BContext> _contexts = new( 16 );
-        [NonSerialized] static readonly Dictionary<Scene, BContext> _sceneRootContexts = new( 4 );
-        [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 8 );
-        [NonSerialized] static BContext _rootContext;
 
-#if B_DEBUG
-        const bool DEBUG_LOG = true; 
+        /// <summary>
+        /// Topmost scene. can be used to detect the top root context
+        /// </summary>
+        [NonSerialized] static Scene _topMostScene;
+        
+        /// <summary>
+        /// Contexts grouped per scene. index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
+        /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
+        /// </summary>
+        [NonSerialized] static readonly Dictionary<Scene, List<BContext>> _sceneContexts = new( 64 );
+        
+        /// <summary>
+        /// contexts grouped per <see cref="BContext.Group"/>. only groups with at least 1 <see cref="BContext"/> are
+        /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
+        /// </summary>
+        [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 64 );
+
+        /// <summary>
+        /// Finds the first context in self or it's parent. it'll go to other scenes if didn't find any. if nothing was
+        /// found, it'll create a new <see cref="BContext"/> on the given <see cref="transform"/>.
+        /// </summary>
+        public static BContext GetNearestContext(Transform transform, ushort groupNumber = 0) {
+            List<BContext> groupList = null;
+            if (groupNumber != 0 && !_groupedContexts.TryGetValue( groupNumber, out groupList )) {
+                goto CreateComponent;
+            }
+
+
+            if (_sceneContexts.TryGetValue( transform.gameObject.scene, out var contextsInScene )) {
+                var originalTransform = transform;
+                // parents
+                while (transform) {
+                    for (int i = 0; i < contextsInScene.Count; i++)
+                        if (transform == contextsInScene[i].transform && isCorrectGroup( contextsInScene[i], groupNumber ))
+                            return contextsInScene[i];
+                    transform = transform.parent;
+                }
+
+                // scene root
+                if (isCorrectGroup( contextsInScene[0], groupNumber ))
+                    return contextsInScene[0];
+                transform = originalTransform;
+            }
+
+            // topmost root
+            var topmostRoot = _sceneContexts[_topMostScene][0];
+            if (isCorrectGroup( topmostRoot, groupNumber ))
+                return topmostRoot;
+
+            // root of grouped contexts
+            if (groupList is not null)
+                return groupList[0];
+            
+            // create a component
+            CreateComponent:
+#if WARN
+            Debug.LogWarning( $"No context found with the group {groupNumber}. Creating a new one on the game " +
+                              "object instead", transform );
 #endif
+            return transform.gameObject.AddComponent<BContext>();
+        }
 
         /// <summary>
         /// Finds the context holding the required dependencies of type <see cref="T"/> compatible with the given
@@ -27,58 +85,170 @@ namespace Binject {
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
         public static BContext FindContext<T>(Transform transform, ushort groupNumber = 0) {
-            
-            [MethodImpl( MethodImplOptions.AggressiveInlining)]
-            bool sameTransform(BContext context) => context.transform == transform;
-            
-            [MethodImpl( MethodImplOptions.AggressiveInlining)]
-            bool isCorrectGroup(BContext context) => groupNumber == 0 || groupNumber == context.Group;
 
-            BContext firstContext = null;
+            var scene = transform.gameObject.scene;
             
-            if (_contexts.Count != 0) {
+            // search in scene
+            if (_sceneContexts.TryGetValue( scene, out var contextsInScene )) {
+                
                 // check parents
-                while (true) {
-                    for (int i = 0; i < _contexts.Count; i++) {
-                        var context = _contexts[i];
-                        if (isCorrectGroup( context ) && sameTransform( context )) {
-                            firstContext ??= context;
+                while (transform) {
+                    for (int i = 0; i < contextsInScene.Count; i++) {
+                        var context = contextsInScene[i];
+                        if (isCorrectGroup( context, groupNumber ) && context.transform == transform) {
                             if (context.HasDependency<T>()) return context;
                         }
                     }
-                    if (transform.parent) transform = transform.parent;
-                    else break;
-                } 
-                
+                    transform = transform.parent;
+                }
+
                 // check scene root context
-                if (_sceneRootContexts.Count > 0 && 
-                    _sceneRootContexts.TryGetValue( transform.gameObject.scene, out var sceneRootContext )
-                    && sceneRootContext && transform != sceneRootContext.transform) 
-                {
-                    if (isCorrectGroup( sceneRootContext ) && sceneRootContext.HasDependency<T>()) 
-                        return sceneRootContext;
-                }
-                
-                // check root context
-                if (_rootContext && transform != _rootContext.transform) {
-                    if (isCorrectGroup( _rootContext ) && _rootContext.HasDependency<T>()) return _rootContext;
-                }
-                
-                // check grouped contexts from inappropriate contexts
-                if (_groupedContexts.TryGetValue( groupNumber, out var list ) && list.Count > 0) {
-                    for (int i = 0; i < list.Count; i++)
-                        if (list[i].HasDependency<T>()) return list[i];
-                }
-                
-                // no context found, return first parent in group if exists any
-                if (firstContext is not null) return firstContext;
+                if (isCorrectGroup( contextsInScene[0], groupNumber ) && contextsInScene[0].HasDependency<T>())
+                    return contextsInScene[0];
             }
 
-            Debug.LogWarning( $"No context found containing the dependency type {typeof(T).FullName}" );
+            // check topmost scene root context
+            if (_topMostScene != scene) {
+                var root = _sceneContexts[_topMostScene][0];
+                if (isCorrectGroup( root, groupNumber ) && root.HasDependency<T>())
+                    return root;
+            }
 
+            // check grouped contexts from any scene
+            if (_groupedContexts.TryGetValue( groupNumber, out var list ) && list.Count > 0) {
+                for (int i = 0; i < list.Count; i++) // starting from 0 so we'll get root first
+                    if (list[i].HasDependency<T>())
+                        return list[i];
+            }
+
+#if WARN
+            Debug.LogWarning( $"No context found containing the dependency type {typeof(T).FullName}" );
+#endif
             return null;
         }
+   
+        
+        /// <summary>
+        /// Adds the context to internal lists and updates caches
+        /// </summary>
+        internal static void AddContext(BContext context) {
+#if B_DEBUG
+            Debug.Log( $"adding {context.name}" );
+#endif
+            // add to lists
+            if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
+                _groupedContexts[context.Group] = glist = new List<BContext>( 4 );
+            glist.Add( context );
+            if (!_sceneContexts.TryGetValue( context.gameObject.scene, out var slist ))
+                _sceneContexts[context.gameObject.scene] = slist = new List<BContext>( 4 );
+            slist.Add( context );
 
+            UpdateAllRootContextsAndTopmostScene();
+        }
+
+        /// <summary>
+        /// Removes the context from internal lists and updates caches
+        /// </summary>
+        internal static void RemoveContext(BContext context) {
+#if B_DEBUG
+            Debug.Log( $"removing {(context ? context.name : "null")}" );
+#endif
+            bool changed = false;
+            
+            // remove from lists
+            if (_groupedContexts.TryGetValue( context.Group, out var glist )) {
+                changed = glist.Remove( context );
+                if (changed && glist.Count == 0)
+                    _groupedContexts.Remove( context.Group );
+            }
+            if (_sceneContexts.TryGetValue( context.gameObject.scene, out var slist )) {
+                changed |= slist.Remove( context );
+                if (changed && slist.Count == 0) 
+                    _sceneContexts.Remove( context.gameObject.scene );
+            }
+
+            if (changed) UpdateAllRootContextsAndTopmostScene();
+        }
+
+        /// <summary>
+        /// Updates <see cref="_sceneContexts"/>'s roots, <see cref="_groupedContexts"/>'s roots and
+        /// <see cref="_topMostScene"/>. (root is index 0 of a <see cref="BContext"/> list)
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        static void UpdateAllRootContextsAndTopmostScene() {
+            if (_sceneContexts.Count == 0) {
+                _topMostScene = default;
+                return;
+            }
+            
+            // scene roots
+            int rootOrder;
+            foreach (var contexts in _sceneContexts.Values) {
+                rootOrder = GetHierarchyOrder( contexts[0].transform );
+                int index = 0;
+                for (int i = 1; i < contexts.Count; i++) {
+                    var order = GetHierarchyOrder( contexts[i].transform );
+                    if (order < rootOrder) {
+                        rootOrder = order;
+                        index = i;
+                    }
+                }
+                // swap old root with new root
+                if (index != 0) 
+                    (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
+            }
+            
+            // group roots (and topmost scene at the same time)
+            Dictionary<Scene, int> sceneOrder = new( SceneManager.sceneCount );
+            bool foundTopmostScene = false;
+            for (int i = 0; i < SceneManager.sceneCount; i++) {
+                sceneOrder[SceneManager.GetSceneAt( i )] = i;
+                
+                // resolving topmost scene right here
+                var scene = SceneManager.GetSceneAt( i );
+                if (!foundTopmostScene && _sceneContexts.ContainsKey( scene )) {
+                    _topMostScene = scene;
+                    foundTopmostScene = true;
+                }
+            }
+            
+            foreach (var contexts in _groupedContexts.Values) {
+                const int SCENE_BENEFIT = 1_000_000;
+                rootOrder = GetHierarchyOrder( contexts[0].transform ) * sceneOrder[contexts[0].gameObject.scene] * SCENE_BENEFIT;
+                int index = 0;
+                for (int i = 1; i < contexts.Count; i++) {
+                    var order = GetHierarchyOrder( contexts[i].transform ) * sceneOrder[contexts[i].gameObject.scene] * SCENE_BENEFIT;
+                    if (order < rootOrder) {
+                        rootOrder = order;
+                        index = i;
+                    }
+                }
+                // swap old root with new root
+                if (index != 0) 
+                    (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
+            }
+        }
+
+        /// <summary>
+        /// checks whether or not the <see cref="context"/> is compatible with the given <see cref="groupNumber"/>
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining)]
+        static bool isCorrectGroup(BContext context, ushort groupNumber) => groupNumber == 0 || groupNumber == context.Group;
+        
+        /// <summary>
+        /// Returns the index of which the transform will show up in hierarchy if everything is expanded
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        static int GetHierarchyOrder(Transform transform) {
+            int order = 0;
+            do {
+                order += transform.GetSiblingIndex();
+                transform = transform.parent;
+            } while (transform);
+
+            return order;
+        }
+ 
 #region Helper Functions
 
         /// <summary>
@@ -194,6 +364,8 @@ namespace Binject {
 
 #region Helper Extensions
 
+#region Class Dependencies
+
         /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static T GetDependency<T>(this Component component) where T : class {
@@ -238,6 +410,11 @@ namespace Binject {
             return GetDependencies<T1, T2, T3, T4, T5>( component.transform );
         }
         
+
+#endregion
+
+#region Struct Dependencies
+
         /// <inheritdoc cref="GetDependency{T}(UnityEngine.Transform,ushort)"/>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public static T GetDependencyStruct<T>(this Component component) where T : struct {
@@ -284,98 +461,15 @@ namespace Binject {
 
 #endregion
 
-        
-        internal static void AddContext(BContext context) {
-#if B_DEBUG
-            if (DEBUG_LOG) {
-                Debug.Log( $"adding {context.name} to [{string.Join( ", ", _contexts.Select( c => c.name ) )}]" );
-            }
-#endif
-            _contexts.Add( context );
-            if (!_groupedContexts.TryGetValue( context.Group, out var list ))
-                _groupedContexts[context.Group] = list = new List<BContext>( 4 );
-            list.Add( context );
-            UpdateSceneRootContexts();
-            UpdateRootContext();
-        }
+        /// <inheritdoc cref="GetNearestContext(UnityEngine.Transform,ushort)"/>
+        public static BContext GetNearestContext(this Component component, ushort groupNumber = 0) =>
+            GetNearestContext( component.transform, groupNumber );
 
-        internal static void RemoveContext(BContext context) {
-#if B_DEBUG
-            if (DEBUG_LOG) {
-                Debug.Log( $"removing {(context ? context.name : "null")} from [{string.Join( ", ", _contexts.Select( c => c ? c.name : "null" ) )}]" );
-            }
-#endif
-            _contexts.Remove( context );
-            if (_groupedContexts.TryGetValue( context.Group, out var list )) 
-                list.Remove( context );
-            UpdateSceneRootContexts();
-            UpdateRootContext();
-        }
+        /// <inheritdoc cref="FindContext{T}(UnityEngine.Transform,ushort)"/>
+        public static BContext FindContext<T>(this Component component, ushort groupNumber = 0) =>
+            FindContext<T>( component.transform, groupNumber );
 
+#endregion
 
-        /// <summary>
-        /// Updates <see cref="_sceneRootContexts"/>
-        /// </summary>
-        internal static void UpdateSceneRootContexts() {
-            _sceneRootContexts.Clear();
-            Dictionary<Scene, int> sceneRootHierarchyOrders = new( 4 );
-            for (int i = 0; i < SceneManager.sceneCount; i++) {
-                _sceneRootContexts.Add( SceneManager.GetSceneAt( i ), null );
-                sceneRootHierarchyOrders.Add( SceneManager.GetSceneAt( i ), int.MaxValue );
-            }
-            for (int i = 0; i < _contexts.Count; i++) {
-                var order = GetHierarchyOrder( _contexts[i].transform );
-                var scene = _contexts[i].gameObject.scene;
-                if (sceneRootHierarchyOrders[scene] > order) {
-                    sceneRootHierarchyOrders[scene] = order;
-                    _sceneRootContexts[scene] = _contexts[i];
-                }
-            }
-
-#if B_DEBUG
-            if (DEBUG_LOG) {
-                Debug.Log( $"scene root contexts: [{string.Join( ", ", _sceneRootContexts.Select( s => $"{s.Key.name}:{(s.Value ? s.Value.name : "null")}" ) )}]" );
-            }
-#endif
-        }
-
-        /// <summary>
-        /// Updates <see cref="_rootContext"/> based on <see cref="_sceneRootContexts"/>. Be sure to use this after
-        /// <see cref="UpdateSceneRootContexts"/>.
-        /// </summary>
-        internal static void UpdateRootContext() {
-            // save scene indexes
-            Dictionary<Scene, int> sceneOrder = new( _sceneRootContexts.Count );
-            for (int i = 0; i < SceneManager.sceneCount; i++) 
-                sceneOrder.Add( SceneManager.GetSceneAt( i ), i );
-            // find first index
-            int rootContextSceneIndex = int.MaxValue;
-            foreach (var (scene, context) in _sceneRootContexts) {
-                var order = sceneOrder[scene];
-                if (rootContextSceneIndex > order) {
-                    rootContextSceneIndex = order;
-                    _rootContext = context;
-                }
-            }
-#if B_DEBUG
-            if (DEBUG_LOG) {
-                Debug.Log( $"root context is {_rootContext?.name ?? "null"}" );
-            }
-#endif
-        }
-
-        /// <summary>
-        /// Returns the index of which the transform will show up in hierarchy if everything is expanded
-        /// </summary>
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        static int GetHierarchyOrder(Transform transform) {
-            int order = 0;
-            do {
-                order += transform.GetSiblingIndex();
-                transform = transform.parent;
-            } while (transform);
-
-            return order;
-        }
     }
 }

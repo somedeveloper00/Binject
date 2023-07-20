@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
@@ -84,7 +83,7 @@ namespace Binject {
         }
 
         void OnDisable() {
-            if (_initialized) BinjectManager.RemoveContext( this );
+            if (_initialized) BinjectManager.RemoveContext( this ); 
             _initialized = false;
         }
 
@@ -96,18 +95,27 @@ namespace Binject {
         /// <summary>
         /// Binds a dependency to this context. If one with the same type already exists, the new one will override
         /// the old one.
-        /// (for reference types only)
         /// </summary>
-        public void Bind<T>(T dependency) where T : class {
+        public void Bind<T>(T dependency) {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
-                if (IsUnityObjectType( dependency.GetType() ))
+                if (typeof(T).IsValueType) 
+                    _structDependencies.Add( new BoxedStructHolder( dependency ) );
+                else if (IsUnityObjectType( dependency.GetType() ))
                     ObjectDependencies.Add( dependency as UnityEngine.Object );
                 else
                     DataDependencies.Add( dependency );
             } else {
                 // override previous of same type
-                if (IsUnityObjectType( dependency.GetType() )) {
+                if (typeof(T).IsValueType) {
+                    for (int i = 0; i < _structDependencies.Count; i++) {
+                        if (_structDependencies[i].GetValueType() == dependency.GetType()) {
+                            _structDependencies[i].BoxAndSetValue( dependency );
+                            break;
+                        }
+                    }
+                }
+                else if (IsUnityObjectType( dependency.GetType() )) {
                     for (int i = 0; i < ObjectDependencies.Count; i++) {
                         if (ObjectDependencies[i].GetType() == dependency.GetType()) {
                             ObjectDependencies[i] = dependency as UnityEngine.Object;
@@ -127,17 +135,18 @@ namespace Binject {
 
         /// <summary>
         /// Binds a dependency to this context. If one with the same type already exists, the new one will override
-        /// the old one.
-        /// (for value types only)
+        /// the old one.<para/>
+        /// Use this instead of <see cref="Bind{T}"/> for `struct`s to avoid boxing and get better
+        /// performance.
         /// </summary>
         public void BindStruct<T>(T dependency) where T : struct {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
-                _structDependencies.Add( new StructHolder<T>( dependency ) );
+                _structDependencies.Add( new RealStructHolder<T>( dependency ) );
             } else {
                 // override previous of same type
                 for (int i = 0; i < _structDependencies.Count; i++) {
-                    if (_structDependencies[i] is StructHolder<T> sd) {
+                    if (_structDependencies[i] is RealStructHolder<T> sd) {
                         sd.Value = dependency;
                         break;
                     }
@@ -183,26 +192,23 @@ namespace Binject {
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
-        /// (for reference types only)
         /// </summary>
-        public T GetDependency<T>() where T : class {
+        public T GetDependency<T>() {
             if (HasDependency<T>())
-                if (GetDependency_ReferenceType( out T result ))
+                if (GetDependency_Any( out T result ))
                     return result;
-
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
 
         /// <summary>
-        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
-        /// (for value types only)
+        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.<para/>
+        /// Use this instead of <see cref="GetDependency{T}"/> for `struct`s to avoid boxing and get better performance.
         /// </summary>
         public T GetDependencyStruct<T>() where T : struct {
             if (HasDependency<T>())
                 if (GetDependency_ValueType<T>( out var result ))
                     return result;
-
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
@@ -212,10 +218,9 @@ namespace Binject {
         /// Slightly faster than <see cref="GetDependency{T}"/> if you already know that the dependency exists, but
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
         /// <see cref="GetDependency{T}"/> call. 
-        /// (for reference types only)
         /// </summary>
-        public T GetDependencyNoCheck<T>() where T : class {
-            if (GetDependency_ReferenceType<T>( out var result ))
+        public T GetDependencyNoCheck<T>() {
+            if (GetDependency_Any<T>( out var result ))
                 return result;
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
@@ -225,8 +230,8 @@ namespace Binject {
         /// Without checking if it exists, returns the dependency of type <see cref="T"/>. If not found, returns default.
         /// Slightly faster than <see cref="GetDependency{T}"/> if you already know that the dependency exists, but
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
-        /// <see cref="GetDependency{T}"/> call. 
-        /// (for value types only)
+        /// <see cref="GetDependency{T}"/> call. <para/>
+        /// Use this instead of <see cref="GetDependency{T}"/> for `struct`s to avoid boxing and get better performance.
         /// </summary>
         public T GetDependencyStructNoCheck<T>() where T : struct {
             if (GetDependency_ValueType<T>( out var result ))
@@ -249,7 +254,15 @@ namespace Binject {
         }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        bool GetDependency_ReferenceType<T>(out T result) where T : class {
+        bool GetDependency_Any<T>(out T result) {
+            if (typeof(T).IsValueType) {
+                for (int i = 0; i < _structDependencies.Count; i++)
+                    if (_structDependencies[i].GetValueType() == typeof(T)) {
+                        result = (T)_structDependencies[i].BoxAndGetValue();
+                        return true;
+                    }
+                
+            }
             if (IsUnityObjectType( typeof(T) )) {
                 for (int i = 0; i < ObjectDependencies.Count; i++)
                     if (ObjectDependencies[i] is T obj) {
@@ -271,7 +284,7 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         bool GetDependency_ValueType<T>(out T result) where T : struct {
             for (int i = 0; i < _structDependencies.Count; i++)
-                if (_structDependencies[i] is StructHolder<T> sd) {
+                if (_structDependencies[i] is RealStructHolder<T> sd) {
                     result = sd.Value;
                     return true;
                 }
