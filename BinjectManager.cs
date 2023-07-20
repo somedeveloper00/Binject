@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -16,6 +17,10 @@ using UnityEngine.SceneManagement;
 namespace Binject {
     [ExecuteAlways] 
     public static class BinjectManager {
+
+#if B_DEBUG
+        static BinjectManager() => Debug.Log( "Binject Domain Reloaded" );
+#endif
 
         /// <summary>
         /// Topmost scene. can be used to detect the top root context
@@ -133,7 +138,7 @@ namespace Binject {
         /// </summary>
         internal static void AddContext(BContext context) {
 #if B_DEBUG
-            Debug.Log( $"adding {context.name}" );
+            Debug.Log( $"adding {context.name}({context.gameObject.scene.name}). all: {CreateStringListOfAllContexts()}" );
 #endif
             // add to lists
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
@@ -151,7 +156,7 @@ namespace Binject {
         /// </summary>
         internal static void RemoveContext(BContext context) {
 #if B_DEBUG
-            Debug.Log( $"removing {(context ? context.name : "null")}" );
+            Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}" );
 #endif
             bool changed = false;
             
@@ -169,6 +174,12 @@ namespace Binject {
 
             if (changed) UpdateAllRootContextsAndTopmostScene();
         }
+
+#if B_DEBUG
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        static string CreateStringListOfAllContexts() =>
+            $"[{string.Join( ", ", _sceneContexts.SelectMany( s => s.Value ).Select( c => $"{c.name}({c.gameObject.scene.name})" ) )}]";
+#endif
 
         /// <summary>
         /// Updates <see cref="_sceneContexts"/>'s roots, <see cref="_groupedContexts"/>'s roots and
@@ -194,8 +205,12 @@ namespace Binject {
                     }
                 }
                 // swap old root with new root
-                if (index != 0) 
+                if (index != 0) {
                     (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
+#if B_DEBUG
+                    Debug.Log( $"Root of scene '{contexts[0].gameObject.scene.name}' changed: {contexts[0].name}" );
+#endif
+                }
             }
             
             // group roots (and topmost scene at the same time)
@@ -207,6 +222,9 @@ namespace Binject {
                 // resolving topmost scene right here
                 var scene = SceneManager.GetSceneAt( i );
                 if (!foundTopmostScene && _sceneContexts.ContainsKey( scene )) {
+#if B_DEBUG
+                    if (_topMostScene != scene) Debug.Log( $"Topmost scene changed: {scene.name}" );
+#endif
                     _topMostScene = scene;
                     foundTopmostScene = true;
                 }
@@ -224,8 +242,12 @@ namespace Binject {
                     }
                 }
                 // swap old root with new root
-                if (index != 0) 
+                if (index != 0) {
                     (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
+#if B_DEBUG
+                    Debug.Log( $"Root of group '{contexts[0].Group}' changed: {contexts[0].name}" );
+#endif
+                }
             }
         }
 
