@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
@@ -23,6 +24,8 @@ namespace Binject {
          
         [Tooltip( "List of injectable Unity Objects as dependency." )]
         [SerializeField] internal List<UnityEngine.Object> ObjectDependencies = new( 8 );
+
+        readonly List<StructHolder> _structDependencies = new( 8 );
         
         readonly HashSet<Type> _dependencyTypes = new( 16 );
 
@@ -93,6 +96,7 @@ namespace Binject {
         /// <summary>
         /// Binds a dependency to this context. If one with the same type already exists, the new one will override
         /// the old one.
+        /// (for reference types only)
         /// </summary>
         public void Bind<T>(T dependency) where T : class {
             if (_dependencyTypes.Add( dependency.GetType() )) {
@@ -100,7 +104,7 @@ namespace Binject {
                 if (IsUnityObjectType( dependency.GetType() ))
                     ObjectDependencies.Add( dependency as UnityEngine.Object );
                 else
-                    DataDependencies.Add( (IBDependency)dependency );
+                    DataDependencies.Add( dependency );
             } else {
                 // override previous of same type
                 if (IsUnityObjectType( dependency.GetType() )) {
@@ -122,15 +126,43 @@ namespace Binject {
         }
 
         /// <summary>
-        /// Binds a <see cref="UnityEngine.Object"/> dependency from this context.
+        /// Binds a dependency to this context. If one with the same type already exists, the new one will override
+        /// the old one.
+        /// (for value types only)
         /// </summary>
-        void Unbind<T>() where T : class {
+        public void BindStruct<T>(T dependency) where T : struct {
+            if (_dependencyTypes.Add( dependency.GetType() )) {
+                // new type
+                _structDependencies.Add( new StructHolder<T>( dependency ) );
+            } else {
+                // override previous of same type
+                for (int i = 0; i < _structDependencies.Count; i++) {
+                    if (_structDependencies[i] is StructHolder<T> sd) {
+                        sd.Value = dependency;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Unbinds a dependency from this context.
+        /// </summary>
+        void Unbind<T>() {
             if (_dependencyTypes.Remove( typeof(T) )) {
+                if (typeof(T).IsValueType) {
+                    for (int i = 0; i < _structDependencies.Count; i++) {
+                        if (_structDependencies[i].GetValueType() == typeof(T)) {
+                            _structDependencies.RemoveAt( i );
+                            return;
+                        }
+                    }
+                }
                 if (IsUnityObjectType( typeof(T) )) {
                     for (int i = 0; i < ObjectDependencies.Count; i++) {
                         if (ObjectDependencies[i].GetType() == typeof(T)) {
                             ObjectDependencies.RemoveAt( i );
-                            break;
+                            return;
                         }
                     }
                 } else {
@@ -150,20 +182,26 @@ namespace Binject {
         public bool HasDependency<T>() => _dependencyTypes.Contains( typeof(T) );
 
         /// <summary>
-        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns default.
+        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
+        /// (for reference types only)
         /// </summary>
         public T GetDependency<T>() where T : class {
-            if (HasDependency<T>()) {
-                if (IsUnityObjectType( typeof(T) )) {
-                    for (int i = 0; i < ObjectDependencies.Count; i++)
-                        if (ObjectDependencies[i].GetType() == typeof(T))
-                            return ObjectDependencies[i] as T;
-                } else {
-                    for (int i = 0; i < DataDependencies.Count; i++)
-                        if (DataDependencies[i].GetType() == typeof(T))
-                            return DataDependencies[i] as T;
-                }
-            }
+            if (HasDependency<T>())
+                if (GetDependency_ReferenceType( out T result ))
+                    return result;
+
+            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
+            return default;
+        }
+
+        /// <summary>
+        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
+        /// (for value types only)
+        /// </summary>
+        public T GetDependencyStruct<T>() where T : struct {
+            if (HasDependency<T>())
+                if (GetDependency_ValueType<T>( out var result ))
+                    return result;
 
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
@@ -173,18 +211,26 @@ namespace Binject {
         /// Without checking if it exists, returns the dependency of type <see cref="T"/>. If not found, returns default.
         /// Slightly faster than <see cref="GetDependency{T}"/> if you already know that the dependency exists, but
         /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
-        /// <see cref="GetDependency{T}"/> call.
+        /// <see cref="GetDependency{T}"/> call. 
+        /// (for reference types only)
         /// </summary>
         public T GetDependencyNoCheck<T>() where T : class {
-            if (IsUnityObjectType( typeof(T) )) {
-                for (int i = 0; i < ObjectDependencies.Count; i++)
-                    if (ObjectDependencies[i].GetType() == typeof(T))
-                        return ObjectDependencies[i] as T;
-            } else {
-                for (int i = 0; i < DataDependencies.Count; i++)
-                    if (DataDependencies[i].GetType() == typeof(T))
-                        return DataDependencies[i] as T;
-            }
+            if (GetDependency_ReferenceType<T>( out var result ))
+                return result;
+            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
+            return default;
+        }
+
+        /// <summary>
+        /// Without checking if it exists, returns the dependency of type <see cref="T"/>. If not found, returns default.
+        /// Slightly faster than <see cref="GetDependency{T}"/> if you already know that the dependency exists, but
+        /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
+        /// <see cref="GetDependency{T}"/> call. 
+        /// (for value types only)
+        /// </summary>
+        public T GetDependencyStructNoCheck<T>() where T : struct {
+            if (GetDependency_ValueType<T>( out var result ))
+                return result;
 
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
@@ -198,6 +244,39 @@ namespace Binject {
                 _dependencyTypes.Add( DataDependencies[i].GetType() );
             for (int i = 0; i < ObjectDependencies.Count; i++) 
                 _dependencyTypes.Add( ObjectDependencies[i].GetType() );
+            for (int i = 0; i < _structDependencies.Count; i++)
+                _dependencyTypes.Add( _structDependencies[i].GetValueType() );
+        }
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        bool GetDependency_ReferenceType<T>(out T result) where T : class {
+            if (IsUnityObjectType( typeof(T) )) {
+                for (int i = 0; i < ObjectDependencies.Count; i++)
+                    if (ObjectDependencies[i] is T obj) {
+                        result = obj;
+                        return true;
+                    }
+            } else {
+                for (int i = 0; i < DataDependencies.Count; i++)
+                    if (DataDependencies[i] is T dat) {
+                        result = dat;
+                        return true;
+                    }
+            }
+
+            result = default;
+            return false;
+        }
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        bool GetDependency_ValueType<T>(out T result) where T : struct {
+            for (int i = 0; i < _structDependencies.Count; i++)
+                if (_structDependencies[i] is StructHolder<T> sd) {
+                    result = sd.Value;
+                    return true;
+                }
+            result = default;
+            return false;
         }
 
 

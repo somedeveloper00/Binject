@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using Binject;
+using Unity.VisualScripting;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEditorInternal;
@@ -10,8 +11,6 @@ using UnityEngine;
 namespace BinjectEditor {
     [CustomEditor( typeof(BContext) )]
     internal class BContextEditor : Editor {
-        BContext _context;
-        
         SerializedProperty dataDependenciesProp;
         SerializedProperty objectDependenciesProp;
         SerializedProperty groupProp;
@@ -25,15 +24,18 @@ namespace BinjectEditor {
 
         static TypeSelectDropDown _classTypeDropDown = new( new AdvancedDropdownState(),
             filter: type =>
-                type.IsClass && !type.IsAbstract && !type.IsSubclassOf( typeof(UnityEngine.Object) ) &&
-                !type.ContainsGenericParameters && !type.IsSubclassOf( typeof(Attribute) ) &&           // can't instantiate generic types or attributes
-                type.Assembly.GetName().Name != "mscorlib" &&                                           // mscorlib is too low-level to inject
-                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&                     // compiler-generated types
-                !type.FullName.Contains( '+' ) &&                                                       
-                type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&                     // for Unity serialization
-                !type.IsSubclassOf( typeof(Exception) ) &&                                              // no need to inject exceptions
-                !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) ) &&      // no need to inject disposables
-                type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                        // construct easily 
+                true
+                && !type.IsValueType                                                                        // avoid boxing/unboxing
+                && !type.IsSubclassOf( typeof(UnityEngine.Object) )                                         // Unity Objects won't SerializeReference
+                && !type.IsAbstract && !type.ContainsGenericParameters &&                                   // exclude useless serializing classes
+                !type.IsSubclassOf( typeof(Attribute) )
+                && type.IsSerializable                                                                      // only serializable
+                && type.Assembly.GetName().Name != "mscorlib"                                               // mscorlib is too low-level to inject
+                && !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&                      // no compiler-generated types
+                !type.FullName.Contains( '+' )
+                && !type.IsSubclassOf( typeof(Exception) )                                                  // no need to inject exceptions
+                && !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) )          // no need to inject disposables
+                && type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                         // construct easily 
         );
 
         
@@ -41,8 +43,8 @@ namespace BinjectEditor {
             _dataList = new ReorderableList( serializedObject, dataDependenciesProp,
                 draggable: true,
                 displayHeader: true,
-                displayAddButton: !Application.isPlaying && AllNonObjectDependencyTypes.Length > 0,
-                displayRemoveButton: !Application.isPlaying && AllNonObjectDependencyTypes.Length > 0 );
+                displayAddButton: !Application.isPlaying,
+                displayRemoveButton: !Application.isPlaying );
 
             _dataList.headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             _dataList.drawHeaderCallback += rect => {
@@ -153,7 +155,6 @@ namespace BinjectEditor {
 
         public override void OnInspectorGUI() {
             if ( dataDependenciesProp == null ) { 
-                _context = (BContext)target;
                 dataDependenciesProp = serializedObject.FindProperty( nameof(BContext.DataDependencies) );
                 objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.ObjectDependencies) );
                 groupProp = serializedObject.FindProperty( nameof(BContext.Group) );
@@ -200,17 +201,6 @@ namespace BinjectEditor {
             }
         }
         
-        static Type[] AllNonObjectDependencyTypes = AppDomain.CurrentDomain
-            .GetAssemblies()
-            .SelectMany( assembly => assembly.GetTypes()
-                .Where( type => type.GetInterfaces().Contains( typeof(IBDependency) )
-                                && type.GetCustomAttribute( typeof(SerializableAttribute) ) != null &&
-                                !type.IsSubclassOf( typeof(UnityEngine.Object) )
-                ) ).ToArray();
-        
-        static GUIContent[] AllNonObjectDependencyTypesNames = AllNonObjectDependencyTypes.Select( type => new GUIContent( type.FullName.Replace( '.', '/' ) ) ).ToArray();
-
-
         class LabelWidth : IDisposable {
             float w;
             public LabelWidth(float width) {
