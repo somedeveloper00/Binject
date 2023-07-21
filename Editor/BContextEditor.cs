@@ -34,9 +34,7 @@ namespace BinjectEditor {
                 !type.IsSubclassOf( typeof(Attribute) )
                 && type.IsSerializable                                                                      // only serializable
                 && type.Assembly.GetName().Name != "mscorlib"                                               // mscorlib is too low-level to inject
-                && type.GetCustomAttribute( typeof(CompilerGeneratedAttribute) ) == null &&                 // no compiler-generated classes
-                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&
-                !type.FullName.Contains( '+' )
+                && type.GetCustomAttribute( typeof(CompilerGeneratedAttribute) ) == null                    // no compiler-generated classes
                 && !type.IsSubclassOf( typeof(Exception) )                                                  // no need to inject exceptions
                 && !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) )          // no need to inject disposables
                 && type.GetConstructors().Any( c => c.GetParameters().Length == 0 )                         // construct easily 
@@ -49,9 +47,7 @@ namespace BinjectEditor {
                 && !type.ContainsGenericParameters                                                          // exclude useless serializing types
                 && type.IsSerializable                                                                      // only serializable
                 && type.Assembly.GetName().Name != "mscorlib"                                               // mscorlib is too low-level to inject
-                && type.GetCustomAttribute( typeof(CompilerGeneratedAttribute) ) == null &&                 // no compiler-generated types
-                !type.FullName.Contains( '<' ) && !type.FullName.Contains( '>' ) &&
-                !type.FullName.Contains( '+' )
+                && type.GetCustomAttribute( typeof(CompilerGeneratedAttribute) ) == null                    // no compiler-generated types
                 && !type.GetInterfaces().Any( inter => inter.IsSubclassOf( typeof(IDisposable) ) )          // no need to inject disposables
         );
 
