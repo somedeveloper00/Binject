@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEngine;
@@ -27,13 +26,12 @@ namespace Binject {
         [Tooltip( "List of injectable non Unity Object classes as dependency." )]
         [SerializeReference] internal List<object> ClassDependencies = new( 8 );
 
-        [FormerlySerializedAs( "StructDependencies" )]
         [Tooltip( "List of injectable value types (struct) as dependency.\n" +
                   "Elements added from inspector will be boxed." )]
-        [SerializeReference] internal List<BoxedStructHolder> StructDependencies_Serializaded = new( 8 );
+        [SerializeReference] internal List<BoxedValueHolder> StructDependencies_Serialized = new( 8 );
         
         
-        [NonSerialized] readonly List<StructHolder> _structDependencies = new( 8 );
+        [NonSerialized] readonly List<ValueHolder> _structDependencies = new( 8 );
         [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16 );
         [NonSerialized] bool _initialized;
 
@@ -53,11 +51,12 @@ namespace Binject {
                     sb.AppendLine( $"    - class at {i}: was null" );
                     ClassDependencies.RemoveAt( i-- );
                 }
-            for (int i = 0; i < _structDependencies.Count; i++)
-                if (_structDependencies[i].BoxAndGetValue() == null) {
-                    sb.AppendLine( $"    - struct at {i}: was null" );
-                    _structDependencies.RemoveAt( i-- );
+
+            for (int i = 0; i < StructDependencies_Serialized.Count; i++) {
+                if (StructDependencies_Serialized[i] == null || StructDependencies_Serialized[i].BoxAndGetValue() == null) {
+                    StructDependencies_Serialized.RemoveAt( i-- );
                 }
+            }
 
             // delete duplicates
             for (int i = 0; i < UnityObjectDependencies.Count - 1; i++)
@@ -72,11 +71,11 @@ namespace Binject {
                     sb.AppendLine( $"    - class at [{j}]: duplicate of [{i}]" );
                     ClassDependencies.RemoveAt( j-- );
                 }
-            for (int i = 0; i < _structDependencies.Count - 1; i++)
-            for (int j = i + 1; j < _structDependencies.Count; j++)
-                if (_structDependencies[i].GetValueType() == _structDependencies[j].GetValueType()) {
+            for (int i = 0; i < StructDependencies_Serialized.Count - 1; i++)
+            for (int j = i + 1; j < StructDependencies_Serialized.Count; j++)
+                if (StructDependencies_Serialized[i].GetValueType() == StructDependencies_Serialized[j].GetValueType()) {
                     sb.AppendLine( $"    - struct at [{j}]: duplicate of [{i}]" );
-                    _structDependencies.RemoveAt( j-- );
+                    StructDependencies_Serialized.RemoveAt( j-- );
                 }
                 
             if (sb.Length > 0) 
@@ -93,7 +92,7 @@ namespace Binject {
 #endif
 
         void Awake() {
-            _structDependencies.AddRange( StructDependencies_Serializaded );
+            _structDependencies.AddRange( StructDependencies_Serialized );
             if (!_initialized) {
                 SyncAllDependencyTypes( true );
                 BinjectManager.AddContext( this );
@@ -124,9 +123,9 @@ namespace Binject {
             if (_dependencyTypes.Add( dependency.GetType() )) {
                 // new type
                 if (typeof(T).IsValueType) {
-                    _structDependencies.Add( new BoxedStructHolder( dependency ) );
+                    _structDependencies.Add( new RealValueHolder<T>( dependency ) );
 #if UNITY_EDITOR
-                    StructDependencies_Serializaded.Add( new BoxedStructHolder( dependency ) );
+                    StructDependencies_Serialized.Add( new BoxedValueHolder( dependency ) );
 #endif
                 }
                 else if (IsUnityObjectType( dependency.GetType() ))
@@ -137,8 +136,18 @@ namespace Binject {
                 // override previous of same type
                 if (typeof(T).IsValueType) {
                     for (int i = 0; i < _structDependencies.Count; i++) {
-                        if (_structDependencies[i].GetValueType() == dependency.GetType()) {
+                        if (_structDependencies[i] is RealValueHolder<T> sd) {
+                            sd.Value = dependency;
+#if UNITY_EDITOR
+                            StructDependencies_Serialized[i].BoxAndSetValue( dependency );
+#endif
+                            break;
+                        }
+                        if (_structDependencies[i].GetValueType() == typeof(T)) {
                             _structDependencies[i].BoxAndSetValue( dependency );
+#if UNITY_EDITOR
+                            StructDependencies_Serialized[i].BoxAndSetValue( dependency );
+#endif
                             break;
                         }
                     }
@@ -162,30 +171,6 @@ namespace Binject {
         }
 
         /// <summary>
-        /// Binds a dependency to this context. If one with the same type already exists, the new one will override
-        /// the old one.<para/>
-        /// Use this instead of <see cref="Bind{T}"/> for `struct`s to avoid boxing and get better
-        /// performance.
-        /// </summary>
-        public void BindStruct<T>(T dependency) where T : struct {
-            if (_dependencyTypes.Add( typeof(T) )) {
-                // new type
-                _structDependencies.Add( new RealStructHolder<T>( dependency ) );
-#if UNITY_EDITOR
-                StructDependencies_Serializaded.Add( new BoxedStructHolder( dependency ) );
-#endif
-            } else {
-                // override previous of same type
-                for (int i = 0; i < _structDependencies.Count; i++) {
-                    if (_structDependencies[i] is RealStructHolder<T> sd) {
-                        sd.Value = dependency;
-                        break;
-                    }
-                }
-            }
-        }
-
-        /// <summary>
         /// Unbinds a dependency from this context.
         /// </summary>
         void Unbind<T>() {
@@ -195,7 +180,7 @@ namespace Binject {
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
                             _structDependencies.RemoveAt( i );
 #if UNITY_EDITOR
-                            StructDependencies_Serializaded.RemoveAt( i );
+                            StructDependencies_Serialized.RemoveAt( i );
 #endif
                             return;
                         }
@@ -229,19 +214,7 @@ namespace Binject {
         /// </summary>
         public T GetDependency<T>() {
             if (HasDependency<T>())
-                if (GetDependency_Any( out T result ))
-                    return result;
-            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
-            return default;
-        }
-
-        /// <summary>
-        /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.<para/>
-        /// Use this instead of <see cref="GetDependency{T}"/> for `struct`s to avoid boxing and get better performance.
-        /// </summary>
-        public T GetDependencyStruct<T>() where T : struct {
-            if (HasDependency<T>())
-                if (GetDependency_ValueType<T>( out var result ))
+                if (TryFindDependency( out T result ))
                     return result;
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
@@ -254,27 +227,12 @@ namespace Binject {
         /// <see cref="GetDependency{T}"/> call. 
         /// </summary>
         public T GetDependencyNoCheck<T>() {
-            if (GetDependency_Any<T>( out var result ))
+            if (TryFindDependency<T>( out var result ))
                 return result;
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
-
-        /// <summary>
-        /// Without checking if it exists, returns the dependency of type <see cref="T"/>. If not found, returns default.
-        /// Slightly faster than <see cref="GetDependency{T}"/> if you already know that the dependency exists, but
-        /// using <see cref="HasDependency{T}"/> and this method together is slightly slower than a single
-        /// <see cref="GetDependency{T}"/> call. <para/>
-        /// Use this instead of <see cref="GetDependency{T}"/> for `struct`s to avoid boxing and get better performance.
-        /// </summary>
-        public T GetDependencyStructNoCheck<T>() where T : struct {
-            if (GetDependency_ValueType<T>( out var result ))
-                return result;
-
-            Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
-            return default;
-        }
-
+        
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         internal void SyncAllDependencyTypes(bool clear) {
@@ -288,14 +246,16 @@ namespace Binject {
         }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        bool GetDependency_Any<T>(out T result) {
+        bool TryFindDependency<T>(out T result) {
             if (typeof(T).IsValueType) {
                 for (int i = 0; i < _structDependencies.Count; i++)
-                    if (_structDependencies[i].GetValueType() == typeof(T)) {
+                    if (_structDependencies[i] is RealValueHolder<T> sd) {
+                        result = sd.Value;
+                        return true;
+                    } else if (_structDependencies[i].GetValueType() == typeof(T)) {
                         result = (T)_structDependencies[i].BoxAndGetValue();
                         return true;
                     }
-                
             }
             if (IsUnityObjectType( typeof(T) )) {
                 for (int i = 0; i < UnityObjectDependencies.Count; i++)
@@ -314,18 +274,6 @@ namespace Binject {
             result = default;
             return false;
         }
-
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        bool GetDependency_ValueType<T>(out T result) where T : struct {
-            for (int i = 0; i < _structDependencies.Count; i++)
-                if (_structDependencies[i] is RealStructHolder<T> sd) {
-                    result = sd.Value;
-                    return true;
-                }
-            result = default;
-            return false;
-        }
-
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static bool IsUnityObjectType(Type type) => type.IsSubclassOf( typeof(UnityEngine.Object) );

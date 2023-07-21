@@ -180,7 +180,7 @@ namespace BinjectEditor {
 
             _structList.headerHeight = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             _structList.drawHeaderCallback += rect => {
-                _structListHeaderGuiContent ??= new GUIContent(structDependenciesProp.displayName, structDependenciesProp.tooltip);
+                _structListHeaderGuiContent ??= new GUIContent( "Struct Dependencies", structDependenciesProp.tooltip);
                 GUI.Label( rect, _structListHeaderGuiContent, _headerStyle );
             };
 
@@ -197,11 +197,12 @@ namespace BinjectEditor {
                 float bodyHeight = 0;
                 int d = prop.depth;
                 prop.Next( true );
-                prop.Next( true );
-                do {
-                    if (prop.depth <= d) break;
-                    bodyHeight += EditorGUI.GetPropertyHeight( prop, true ) + EditorGUIUtility.standardVerticalSpacing;
-                } while (prop.Next( false ));
+                if (prop.Next( true )) {
+                    do {
+                        if (prop.depth <= d) break;
+                        bodyHeight += EditorGUI.GetPropertyHeight( prop, true ) + EditorGUIUtility.standardVerticalSpacing;
+                    } while (prop.Next( false ));
+                }
 
                 return headerHeight + bodyHeight;
             };
@@ -214,7 +215,7 @@ namespace BinjectEditor {
                 prop.isExpanded = EditorGUI.BeginFoldoutHeaderGroup(
                     position: rect,
                     foldout: prop.isExpanded,
-                    content: ((StructHolder)prop.managedReferenceValue).GetValueType().ToString(),
+                    content: ((ValueHolder)prop.managedReferenceValue).GetValueType().ToString(),
                     menuAction: rect => {
                         var menu = new GenericMenu();
                         menu.AddItem( new GUIContent( "Remove" ), false, () => {
@@ -236,13 +237,14 @@ namespace BinjectEditor {
                         } else {
                             int d = prop.depth;
                             prop.Next( true );
-                            prop.Next( true );
-                            do {
-                                if (prop.depth <= d) break;
-                                EditorGUI.PropertyField( rect, prop, true );
-                                rect.y += EditorGUI.GetPropertyHeight( prop, true ) +
-                                          EditorGUIUtility.standardVerticalSpacing;
-                            } while (prop.Next( false ));
+                            if (prop.Next( true )) {
+                                do {
+                                    if (prop.depth <= d) break;
+                                    EditorGUI.PropertyField( rect, prop, true );
+                                    rect.y += EditorGUI.GetPropertyHeight( prop, true ) +
+                                              EditorGUIUtility.standardVerticalSpacing;
+                                } while (prop.Next( false ));
+                            }
                         }
                     }
                     EditorGUI.indentLevel--;
@@ -256,7 +258,7 @@ namespace BinjectEditor {
                         var dependency = Activator.CreateInstance( type );
                         structDependenciesProp.arraySize++;
                         structDependenciesProp.GetArrayElementAtIndex( structDependenciesProp.arraySize - 1 )
-                            .managedReferenceValue = new BoxedStructHolder( dependency );
+                            .managedReferenceValue = new BoxedValueHolder( dependency );
                         serializedObject.ApplyModifiedProperties();
                     } );
             };
@@ -269,7 +271,7 @@ namespace BinjectEditor {
             if ( classDependenciesProp == null ) { 
                 objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.UnityObjectDependencies) );
                 classDependenciesProp = serializedObject.FindProperty( nameof(BContext.ClassDependencies) );
-                structDependenciesProp = serializedObject.FindProperty( nameof(BContext.StructDependencies_Serializaded) );
+                structDependenciesProp = serializedObject.FindProperty( nameof(BContext.StructDependencies_Serialized) );
                 groupProp = serializedObject.FindProperty( nameof(BContext.Group) );
                 SetupObjectList();
                 SetupClassList();
