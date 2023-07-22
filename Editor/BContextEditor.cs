@@ -19,11 +19,13 @@ namespace BinjectEditor {
         ReorderableList _structList;
         ReorderableList _objectList;
         bool _advancedFoldout;
-        
+        BContext _context;
+
         static GUIStyle _headerStyle;
         static GUIContent _objectListHeaderGuiContent;
         static GUIContent _classListHeaderGuiContent;
         static GUIContent _structListHeaderGuiContent;
+
 
         static TypeSelectDropDown _classTypeDropDown = new( new AdvancedDropdownState(),
             filter: type =>
@@ -263,8 +265,18 @@ namespace BinjectEditor {
 
         static bool HasCustomEditor(SerializedProperty prop) => prop.managedReferenceValue is IBHasCustomDrawer;
 
+        void OnEnable() {
+            _context = (BContext)target;
+            _context.PopulateSerializedStructs();
+            _context.IsEditorInspecting_EditorOnly = true;
+        }
+
+        void OnDisable() {
+            _context.IsEditorInspecting_EditorOnly = false;
+        }
+
         public override void OnInspectorGUI() {
-            if ( classDependenciesProp == null ) { 
+            if ( classDependenciesProp == null ) {
                 objectDependenciesProp = serializedObject.FindProperty( nameof(BContext.UnityObjectDependencies) );
                 classDependenciesProp = serializedObject.FindProperty( nameof(BContext.ClassDependencies) );
                 structDependenciesProp = serializedObject.FindProperty( nameof(BContext.StructDependencies_Serialized) );

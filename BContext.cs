@@ -36,6 +36,13 @@ namespace Binject {
         [NonSerialized] bool _initialized;
 
 #if UNITY_EDITOR
+        /// <summary>
+        /// When true, <see cref="StructDependencies_Serialized"/> will be updated.
+        /// </summary>
+        [NonSerialized] internal bool IsEditorInspecting_EditorOnly;
+#endif
+
+#if UNITY_EDITOR
         void OnValidate() {
             if (Application.isPlaying) return;
 
@@ -93,7 +100,7 @@ namespace Binject {
 
         void Awake() {
             _structDependencies.Clear();
-            AddAllSerializedStructs();
+            ApplyAllSerializedStructs();
             if (!_initialized) {
                 SyncAllDependencyTypes( true );
                 BinjectManager.AddContext( this );
@@ -121,12 +128,13 @@ namespace Binject {
         /// the old one.
         /// </summary>
         public void Bind<T>(T dependency) {
-            if (_dependencyTypes.Add( dependency.GetType() )) {
+            if (_dependencyTypes.Add( typeof(T) )) {
                 // new type
                 if (typeof(T).IsValueType) {
                     _structDependencies.Add( new RealValueHolder<T>( dependency ) );
 #if UNITY_EDITOR
-                    StructDependencies_Serialized.Add( new BoxedValueHolder( dependency ) );
+                    if (IsEditorInspecting_EditorOnly)
+                        StructDependencies_Serialized.Add( new BoxedValueHolder( dependency ) );
 #endif
                 }
                 else if (IsUnityObjectType( dependency.GetType() ))
@@ -140,14 +148,16 @@ namespace Binject {
                         if (_structDependencies[i] is RealValueHolder<T> sd) {
                             sd.Value = dependency;
 #if UNITY_EDITOR
-                            StructDependencies_Serialized[i].BoxAndSetValue( dependency );
+                            if (IsEditorInspecting_EditorOnly)
+                                StructDependencies_Serialized[i].BoxAndSetValue( dependency );
 #endif
                             break;
                         }
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
                             _structDependencies[i].BoxAndSetValue( dependency );
 #if UNITY_EDITOR
-                            StructDependencies_Serialized[i].BoxAndSetValue( dependency );
+                            if (IsEditorInspecting_EditorOnly)
+                                StructDependencies_Serialized[i].BoxAndSetValue( dependency );
 #endif
                             break;
                         }
@@ -181,7 +191,8 @@ namespace Binject {
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
                             _structDependencies.RemoveAt( i );
 #if UNITY_EDITOR
-                            StructDependencies_Serialized.RemoveAt( i );
+                            if (IsEditorInspecting_EditorOnly)
+                                StructDependencies_Serialized.RemoveAt( i );
 #endif
                             return;
                         }
@@ -236,9 +247,15 @@ namespace Binject {
 
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        void AddAllSerializedStructs() {
+        void ApplyAllSerializedStructs() {
             for (int i = 0; i < StructDependencies_Serialized.Count; i++)
                 _structDependencies.Add( StructDependencies_Serialized[i] );
+        }
+
+        internal void PopulateSerializedStructs() {
+            StructDependencies_Serialized.Clear();
+            for (int i = 0; i < _structDependencies.Count; i++)
+                StructDependencies_Serialized.Add( new BoxedValueHolder( _structDependencies[i].BoxAndGetValue() ) );
         }
 
         /// <summary>
