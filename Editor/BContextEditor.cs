@@ -211,7 +211,7 @@ namespace BinjectEditor {
                 prop.isExpanded = EditorGUI.BeginFoldoutHeaderGroup(
                     position: rect,
                     foldout: prop.isExpanded,
-                    content: ((ValueHolder)prop.managedReferenceValue).GetValueType().ToString(),
+                    content: ((IValueHolder)prop.managedReferenceValue).GetValueType().ToString(),
                     menuAction: rect => {
                         var menu = new GenericMenu();
                         menu.AddItem( new GUIContent( "Remove" ), false, () => {

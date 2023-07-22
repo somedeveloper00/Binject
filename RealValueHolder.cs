@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Binject {
-    internal interface ValueHolder {
+    internal interface IValueHolder {
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public Type GetValueType();
         
@@ -15,7 +15,7 @@ namespace Binject {
     }
 
     [Serializable]
-    internal class BoxedValueHolder : ValueHolder {
+    internal class BoxedValueHolder : IValueHolder {
         [SerializeReference] public object Value;
 
         public BoxedValueHolder(object value) => Value = value;
@@ -28,7 +28,7 @@ namespace Binject {
 
 
     [Serializable]
-    internal struct RealValueHolder<T> : ValueHolder {
+    internal struct RealValueHolder<T> : IValueHolder {
         public T Value;
         public RealValueHolder(T value) => Value = value;
         public Type GetValueType() => typeof(T);

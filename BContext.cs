@@ -31,7 +31,7 @@ namespace Binject {
         [SerializeReference] internal List<BoxedValueHolder> StructDependencies_Serialized = new( 8 );
         
         
-        [NonSerialized] readonly List<ValueHolder> _structDependencies = new( 8 );
+        [NonSerialized] readonly List<IValueHolder> _structDependencies = new( 8 );
         [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16 );
         [NonSerialized] bool _initialized;
 
