@@ -3,6 +3,12 @@ using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Binject {
+    
+    /// <summary>
+    /// Types implementing this will be responsible for saving a <see cref="ValueType"/> data inside and provide
+    /// external access to it. This interface makes sure a <see cref="System.Collections.Generic.List{T}"/> can use any
+    /// structs.
+    /// </summary>
     internal interface IValueHolder {
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public Type GetValueType();
@@ -14,6 +20,9 @@ namespace Binject {
         public void BoxAndSetValue(object value);
     }
 
+    /// <summary>
+    /// Any data stored in this will be boxed, but it's useful for showing the data inside in Unity Editor.
+    /// </summary>
     [Serializable]
     internal class BoxedValueHolder : IValueHolder {
         [SerializeReference] public object Value;
@@ -24,11 +33,11 @@ namespace Binject {
         public void BoxAndSetValue(object value) => Value = value;
     }
 
-    internal interface ITest<T>{ }
-
-
+    /// <summary>
+    /// This will store real data and provides direct access to it without boxing.
+    /// </summary>
     [Serializable]
-    internal struct RealValueHolder<T> : IValueHolder {
+    internal class RealValueHolder<T> : IValueHolder {
         public T Value;
         public RealValueHolder(T value) => Value = value;
         public Type GetValueType() => typeof(T);

@@ -92,7 +92,8 @@ namespace Binject {
 #endif
 
         void Awake() {
-            _structDependencies.AddRange( StructDependencies_Serialized );
+            _structDependencies.Clear();
+            AddAllSerializedStructs();
             if (!_initialized) {
                 SyncAllDependencyTypes( true );
                 BinjectManager.AddContext( this );
@@ -173,7 +174,7 @@ namespace Binject {
         /// <summary>
         /// Unbinds a dependency from this context.
         /// </summary>
-        void Unbind<T>() {
+        public void Unbind<T>() {
             if (_dependencyTypes.Remove( typeof(T) )) {
                 if (typeof(T).IsValueType) {
                     for (int i = 0; i < _structDependencies.Count; i++) {
@@ -232,10 +233,19 @@ namespace Binject {
             Debug.LogWarning( $"No dependency of type {typeof(T).FullName} found. returning default/null." );
             return default;
         }
-        
+
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        internal void SyncAllDependencyTypes(bool clear) {
+        void AddAllSerializedStructs() {
+            for (int i = 0; i < StructDependencies_Serialized.Count; i++)
+                _structDependencies.Add( StructDependencies_Serialized[i] );
+        }
+
+        /// <summary>
+        /// Stores types of all dependencies to <see cref="_dependencyTypes"/>.
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void SyncAllDependencyTypes(bool clear) {
             if (clear) _dependencyTypes.Clear();
             for (int i = 0; i < ClassDependencies.Count; i++)
                 _dependencyTypes.Add( ClassDependencies[i].GetType() );
@@ -245,6 +255,11 @@ namespace Binject {
                 _dependencyTypes.Add( _structDependencies[i].GetValueType() );
         }
 
+        /// <summary>
+        /// Tries to find the dependency from the given type, from fields <see cref="_structDependencies"/>,
+        /// <see cref="UnityObjectDependencies"/> and <see cref="ClassDependencies"/> respectively. <para/>
+        /// (It won't allocate garbage if <see cref="T"/> is a value type.)
+        /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         bool TryFindDependency<T>(out T result) {
             if (typeof(T).IsValueType) {
