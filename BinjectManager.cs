@@ -24,13 +24,13 @@ namespace Binject {
         /// <summary>
         /// Topmost scene handle. can be used to detect the top root context
         /// </summary>
-        [NonSerialized] static int _topMostScene;
+        [NonSerialized] static SceneHandle _topMostScene;
         
         /// <summary>
         /// Contexts grouped per scene (key is <see cref="Scene.handle"/>). index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<int, List<BContext>> _sceneContexts = new( 64 );
+        [NonSerialized] static readonly Dictionary<SceneHandle, List<BContext>> _sceneContexts = new( 64 );
         
         /// <summary>
         /// contexts grouped per <see cref="BContext.Group"/>. only groups with at least 1 <see cref="BContext"/> are
@@ -45,7 +45,7 @@ namespace Binject {
         /// on this gameObject instead.
         /// </summary>
         public static BContext GetSceneRootContext(Transform transform) {
-            if (_sceneContexts.TryGetValue( transform.gameObject.scene.handle, out var list ))
+            if (_sceneContexts.TryGetValue( new( transform.gameObject.scene ), out var list ))
                 return list[0];
 #if WARN
             Debug.LogWarning( $"No context found in scene {transform.gameObject.scene}, Creating a new " +
@@ -64,7 +64,7 @@ namespace Binject {
                 goto CreateComponent;
             }
 
-            if (_sceneContexts.TryGetValue( transform.gameObject.scene.handle, out var contextsInScene )) {
+            if (_sceneContexts.TryGetValue( new( transform.gameObject.scene ), out var contextsInScene )) {
                 var originalTransform = transform;
                 // parents
                 while (transform) {
@@ -104,10 +104,10 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
         public static BContext FindContext<T>(Transform transform, ushort groupNumber = 0) {
 
-            var scene = transform.gameObject.scene;
+            var sceneHandle = new SceneHandle( transform.gameObject.scene );
             
             // search in scene
-            if (_sceneContexts.TryGetValue( scene.handle, out var contextsInScene )) {
+            if (_sceneContexts.TryGetValue( sceneHandle, out var contextsInScene )) {
                 
                 // check parents
                 while (transform) {
@@ -126,7 +126,7 @@ namespace Binject {
             }
 
             // check topmost scene root context
-            if (_topMostScene != scene.handle) {
+            if (_topMostScene != sceneHandle) {
                 var root = _sceneContexts[_topMostScene][0];
                 if (isCorrectGroup( root, groupNumber ) && root.HasDependency<T>())
                     return root;
@@ -160,8 +160,8 @@ namespace Binject {
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
                 _groupedContexts[context.Group] = glist = new List<BContext>( 4 );
             glist.Add( context );
-            if (!_sceneContexts.TryGetValue( context.gameObject.scene.handle, out var slist ))
-                _sceneContexts[context.gameObject.scene.handle] = slist = new List<BContext>( 4 );
+            if (!_sceneContexts.TryGetValue( new( context.gameObject.scene ), out var slist ))
+                _sceneContexts[new( context.gameObject.scene )] = slist = new List<BContext>( 4 );
             slist.Add( context );
 
             UpdateAllRootContextsAndTopmostScene();
@@ -182,10 +182,12 @@ namespace Binject {
                 if (changed && glist.Count == 0)
                     _groupedContexts.Remove( context.Group );
             }
-            if (_sceneContexts.TryGetValue( context.gameObject.scene.handle, out var slist )) {
+
+            var sceneHandle = new SceneHandle( context.gameObject.scene );
+            if (_sceneContexts.TryGetValue( sceneHandle, out var slist )) {
                 changed |= slist.Remove( context );
                 if (changed && slist.Count == 0) 
-                    _sceneContexts.Remove( context.gameObject.scene.handle );
+                    _sceneContexts.Remove( sceneHandle );
             }
 
             if (changed) UpdateAllRootContextsAndTopmostScene();
@@ -233,15 +235,16 @@ namespace Binject {
             Dictionary<Scene, int> sceneOrder = new( SceneManager.sceneCount );
             bool foundTopmostScene = false;
             for (int i = 0; i < SceneManager.sceneCount; i++) {
-                sceneOrder[SceneManager.GetSceneAt( i )] = i;
+                var scene = SceneManager.GetSceneAt( i );
+                var sceneHandle = new SceneHandle( scene );
+                sceneOrder[scene] = i;
                 
                 // resolving topmost scene right here
-                var scene = SceneManager.GetSceneAt( i );
-                if (!foundTopmostScene && _sceneContexts.ContainsKey( scene.handle )) {
+                if (!foundTopmostScene && _sceneContexts.ContainsKey( sceneHandle )) {
 #if B_DEBUG
-                    if (_topMostScene != scene.handle) Debug.Log( $"Topmost scene changed: {scene.name}" );
+                    if (_topMostScene != sceneHandle) Debug.Log( $"Topmost scene changed: {scene.name}" );
 #endif
-                    _topMostScene = scene.handle;
+                    _topMostScene = sceneHandle;
                     foundTopmostScene = true;
                 }
             }
@@ -383,5 +386,19 @@ namespace Binject {
 #endregion
 
 #endregion
+    }
+
+
+    internal readonly struct SceneHandle {
+        readonly int _value;
+        public SceneHandle(Scene scene) => _value = scene.handle;
+
+        public override bool Equals(object obj) => obj is SceneHandle other && Equals( other );
+        public override int GetHashCode() => _value;
+        public static bool operator ==(SceneHandle a, SceneHandle b) => a.Equals( b );
+        public static bool operator !=(SceneHandle a, SceneHandle b) => !a.Equals( b );
+        
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        bool Equals(SceneHandle other) => _value == other._value;
     }
 }
