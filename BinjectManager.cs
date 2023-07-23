@@ -134,7 +134,7 @@ namespace Binject {
 
             // check grouped contexts from any scene
             if (_groupedContexts.TryGetValue( groupNumber, out var list ) && list.Count > 0) {
-                for (int i = 0; i < list.Count; i++) // starting from 0 so we'll get root first
+                for (int i = 0; i < list.Count; i++)
                     if (list[i].HasDependency<T>())
                         return list[i];
             }

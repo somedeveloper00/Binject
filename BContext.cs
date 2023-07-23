@@ -48,11 +48,6 @@ namespace Binject {
 
             // fix broken lists
             StringBuilder sb = new( 128 );
-            for (int i = 0; i < UnityObjectDependencies.Count; i++)
-                if (UnityObjectDependencies[i] == null) {
-                    sb.AppendLine( $"    - Unity Object at {i}: was null" );
-                    UnityObjectDependencies.RemoveAt( i-- );
-                }
             for (int i = 0; i < ClassDependencies.Count; i++)
                 if (ClassDependencies[i] == null) {
                     sb.AppendLine( $"    - class at {i}: was null" );
@@ -68,10 +63,13 @@ namespace Binject {
             // delete duplicates
             for (int i = 0; i < UnityObjectDependencies.Count - 1; i++)
             for (int j = i + 1; j < UnityObjectDependencies.Count; j++)
-                if (UnityObjectDependencies[i].GetType() == UnityObjectDependencies[j].GetType()) {
+                if ((UnityObjectDependencies[i] == null && UnityObjectDependencies[j] == null) ||
+                    (UnityObjectDependencies[i].GetType() == UnityObjectDependencies[j].GetType())) 
+                {
                     sb.AppendLine( $"    - Unity Object at [{j}]: duplicate of [{i}]" );
                     UnityObjectDependencies.RemoveAt( j-- );
                 }
+
             for (int i = 0; i < ClassDependencies.Count - 1; i++)
             for (int j = i + 1; j < ClassDependencies.Count; j++)
                 if (ClassDependencies[i].GetType() == ClassDependencies[j].GetType()) {
@@ -246,16 +244,16 @@ namespace Binject {
         }
 
 
-        [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        void ApplyAllSerializedStructs() {
-            for (int i = 0; i < StructDependencies_Serialized.Count; i++)
-                _structDependencies.Add( StructDependencies_Serialized[i] );
-        }
-
         internal void PopulateSerializedStructs() {
             StructDependencies_Serialized.Clear();
             for (int i = 0; i < _structDependencies.Count; i++)
                 StructDependencies_Serialized.Add( new BoxedValueHolder( _structDependencies[i].BoxAndGetValue() ) );
+        }
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void ApplyAllSerializedStructs() {
+            for (int i = 0; i < StructDependencies_Serialized.Count; i++)
+                _structDependencies.Add( StructDependencies_Serialized[i] );
         }
 
         /// <summary>
