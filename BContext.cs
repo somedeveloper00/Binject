@@ -32,11 +32,13 @@ namespace Binject {
         
         
         [NonSerialized] readonly List<IValueHolder> _structDependencies = new( 8 );
-        [NonSerialized] readonly HashSet<TypeHandle> _dependencyTypes = new( 16 );
-        [NonSerialized] bool _syncedDependencyTypes;
+        [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16, new TypeComparer() );
+        [NonSerialized] bool _inited;
         [NonSerialized] bool _addedToManager;
 
         SceneHandle _lastSceneHandle;
+        Transform _lastParent;
+        int _lastSiblingIndex;
 
 #if UNITY_EDITOR
         /// <summary>
@@ -90,10 +92,10 @@ namespace Binject {
                 Debug.LogWarning( $"Binject Context of {name} removed some dependencies:\n{sb}" );
                 
             // support in-editor injection
-            SyncDependencyTypesIfHaveNot();
-            SaveLastScene();
+            InitializeIfHaveNot();
             AddToManagerIfNotAddedTo();
             ReportSceneChangeOrRemoveFromManagerIfPossible();
+            ReportTransformHierarchyChangeIfPossible();
         }
 
 #endif
@@ -101,8 +103,9 @@ namespace Binject {
         void Awake() {
             _structDependencies.Clear();
             ApplyAllSerializedStructs();
-            SyncDependencyTypesIfHaveNot();
+            InitializeIfHaveNot();
             SaveLastScene();
+            SaveLastHierarchyState();
             AddToManagerIfNotAddedTo();
         }
 
@@ -111,11 +114,9 @@ namespace Binject {
         void OnDestroy() => RemoveFromManagerIfAddedTo();
 
         void LateUpdate() {
-#if UNITY_EDITOR
-            if (!Application.isPlaying) return;
-#endif
             // TODO: come up with a better way of handling scene-change 
             ReportSceneChangeOrRemoveFromManagerIfPossible();
+            ReportTransformHierarchyChangeIfPossible();
         }
 
 
@@ -124,7 +125,7 @@ namespace Binject {
         /// the old one.
         /// </summary>
         public void Bind<T>(T dependency) {
-            if (_dependencyTypes.Add( new( typeof(T) ))) {
+            if (_dependencyTypes.Add( typeof(T) )) {
                 // new type
                 if (typeof(T).IsValueType) {
                     _structDependencies.Add( new RealValueHolder<T>( dependency ) );
@@ -181,7 +182,7 @@ namespace Binject {
         /// Unbinds a dependency from this context.
         /// </summary>
         public void Unbind<T>() {
-            if (_dependencyTypes.Remove( new( typeof(T) ))) {
+            if (_dependencyTypes.Remove( typeof(T) )) {
                 if (typeof(T).IsValueType) {
                     for (int i = 0; i < _structDependencies.Count; i++) {
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
@@ -215,7 +216,7 @@ namespace Binject {
         /// <summary>
         /// Checks if this context has a dependency of type <see cref="T"/>
         /// </summary>
-        public bool HasDependency<T>() => _dependencyTypes.Contains( new( typeof(T) ));
+        public bool HasDependency<T>() => _dependencyTypes.Contains( typeof(T) );
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
@@ -250,6 +251,21 @@ namespace Binject {
 
 
         /// <summary>
+        /// updates manager to adapt for the new transform hierarchy change
+        /// </summary>
+        void ReportTransformHierarchyChangeIfPossible() {
+            if (transform.GetSiblingIndex() != _lastSiblingIndex || !ReferenceEquals( _lastParent, transform.parent )) {
+                BinjectManager.UpdateAllRootContextsAndTopmostScene();
+                SaveLastHierarchyState();
+            }
+        }
+
+        void SaveLastHierarchyState() {
+            _lastParent = transform.parent;
+            _lastSiblingIndex = transform.GetSiblingIndex();
+        }
+
+        /// <summary>
         /// Reports scene change to <see cref="BinjectManager"/> if it happened, or removes this from it if it has
         /// moved to an invalid scene.
         /// </summary>
@@ -264,6 +280,7 @@ namespace Binject {
                     BinjectManager.UpdateContextScene( this, _lastSceneHandle );
                 }
                 SaveLastScene();
+                SaveLastHierarchyState();
             }
         }
 
@@ -290,10 +307,12 @@ namespace Binject {
         }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        void SyncDependencyTypesIfHaveNot() {
-            if (!_syncedDependencyTypes) {
+        void InitializeIfHaveNot() {
+            if (!_inited) {
                 SyncAllDependencyTypes( true );
-                _syncedDependencyTypes = true;
+                SaveLastHierarchyState();
+                SaveLastScene();
+                _inited = true;
             }
         }
         
@@ -313,11 +332,11 @@ namespace Binject {
         void SyncAllDependencyTypes(bool clear) {
             if (clear) _dependencyTypes.Clear();
             for (int i = 0; i < ClassDependencies.Count; i++)
-                _dependencyTypes.Add( new( ClassDependencies[i].GetType() ));
+                _dependencyTypes.Add( ClassDependencies[i].GetType() );
             for (int i = 0; i < UnityObjectDependencies.Count; i++) 
-                _dependencyTypes.Add( new( UnityObjectDependencies[i].GetType() ));
+                _dependencyTypes.Add( UnityObjectDependencies[i].GetType() );
             for (int i = 0; i < _structDependencies.Count; i++)
-                _dependencyTypes.Add( new( _structDependencies[i].GetValueType() ));
+                _dependencyTypes.Add( _structDependencies[i].GetValueType() );
         }
 
         /// <summary>
@@ -360,15 +379,8 @@ namespace Binject {
     }
 
 
-    struct TypeHandle : IEquatable<TypeHandle> {
-        public IntPtr Value;
-
-        public TypeHandle(Type type) => Value = type.TypeHandle.Value;
-        public TypeHandle(IntPtr handle) => Value = handle;
-
-        public bool Equals(TypeHandle other) => Value == other.Value;
-        public override int GetHashCode() => Value.ToInt32();
-        public static bool operator ==(TypeHandle left, TypeHandle right) => left.Equals( right );
-        public static bool operator !=(TypeHandle left, TypeHandle right) => !left.Equals( right );
+    class TypeComparer : IEqualityComparer<Type> {
+        public bool Equals(Type x, Type y) => ReferenceEquals( x, y );
+        public int GetHashCode(Type obj) => obj.GetHashCode();
     }
 }

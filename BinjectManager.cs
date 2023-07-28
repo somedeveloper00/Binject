@@ -27,16 +27,22 @@ namespace Binject {
         [NonSerialized] static SceneHandle _topMostScene;
         
         /// <summary>
-        /// Contexts grouped per scene (key is <see cref="Scene.handle"/>). index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
+        /// Contexts grouped per scene (key is <see cref="Scene.handle"/>). only scenes with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<SceneHandle, List<BContext>> _sceneContexts = new( 4 );
+        [NonSerialized] static readonly Dictionary<SceneHandle, BContextList> _sceneContexts = new( 4 );
         
         /// <summary>
         /// contexts grouped per <see cref="BContext.Group"/>. only groups with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 4 );
+        [NonSerialized] static readonly Dictionary<ushort, BContextList> _groupedContexts = new( 4 );
+        
+        /// <summary>
+        /// transform hierarchies cached for faster iterations to find context in repeated scenarios.<para/>
+        /// The key is the transform in question, and the value is path to context.
+        /// </summary>
+        [NonSerialized] static readonly Dictionary<TransformTypeTuple, TransformHierarchy> _cachedContextFinds = new( 32, new TransformTypeTuple() );
 
 #region Publics
 
@@ -46,7 +52,7 @@ namespace Binject {
         /// </summary>
         public static BContext GetSceneRootContext(Transform transform) {
             if (_sceneContexts.TryGetValue( new( transform.gameObject.scene ), out var list ))
-                return list[0];
+                return list.GetRoot();
 #if WARN
             Debug.LogWarning( $"No context found in scene {transform.gameObject.scene}, Creating a new " +
                               $"{nameof(BContext)} component on the game object instead.", transform );
@@ -59,7 +65,7 @@ namespace Binject {
         /// found, it'll create a new <see cref="BContext"/> component on the gameObject.
         /// </summary>
         public static BContext FindNearestContext(Transform transform, ushort groupNumber = 0) {
-            List<BContext> groupList = null;
+            BContextList groupList = null;
             if (groupNumber != 0 && !_groupedContexts.TryGetValue( groupNumber, out groupList )) {
                 goto CreateComponent;
             }
@@ -67,27 +73,30 @@ namespace Binject {
             if (_sceneContexts.TryGetValue( new( transform.gameObject.scene ), out var contextsInScene )) {
                 var originalTransform = transform;
                 // parents
-                while (transform) {
+                while (transform is not null) {
                     for (int i = 0; i < contextsInScene.Count; i++)
-                        if (transform == contextsInScene[i].transform && isCorrectGroup( contextsInScene[i], groupNumber ))
+                        if (isCorrectGroup( contextsInScene[i], groupNumber ) && ReferenceEquals( transform, contextsInScene[i].transform )) {
+                            contextsInScene.AddPoint( i );
                             return contextsInScene[i];
+                        }
                     transform = transform.parent;
                 }
 
                 // scene root
-                if (isCorrectGroup( contextsInScene[0], groupNumber ))
-                    return contextsInScene[0];
+                var root = contextsInScene.GetRoot();
+                if (isCorrectGroup( root, groupNumber ))
+                    return root;
                 transform = originalTransform;
             }
 
             // topmost root
-            var topmostRoot = _sceneContexts[_topMostScene][0];
+            var topmostRoot = _sceneContexts[_topMostScene].GetRoot();
             if (isCorrectGroup( topmostRoot, groupNumber ))
                 return topmostRoot;
 
             // root of grouped contexts
             if (groupList is not null)
-                return groupList[0];
+                return groupList.GetRoot();
             
             // create a component
             CreateComponent:
@@ -104,30 +113,59 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
         public static BContext FindContext<T>(Transform transform, ushort groupNumber = 0) {
 
+            var transformTypeTuple = new TransformTypeTuple( transform, typeof(T) );
             var sceneHandle = new SceneHandle( transform.gameObject.scene );
             
             // search in scene
             if (_sceneContexts.TryGetValue( sceneHandle, out var contextsInScene )) {
                 
-                // check parents
-                while (transform) {
-                    for (int i = 0; i < contextsInScene.Count; i++) {
-                        var context = contextsInScene[i];
-                        if (isCorrectGroup( context, groupNumber ) && context.transform == transform) {
-                            if (context.HasDependency<T>()) return context;
+                // check cache
+                TransformHierarchy transformHierarchy = new( transform );
+                if (_cachedContextFinds.TryGetValue( transformTypeTuple, out var cachedHierarchy )) {
+                    cachedHierarchy.ResetWalk();
+                    while (true) {
+                        if (cachedHierarchy.TryWalkParent( out var p1 ) != transformHierarchy.TryWalkParent( out var p2 )) {
+                            break;
+                        } 
+                        if (ReferenceEquals( p1, p2 ) && p1 is null) { // reached end
+                            if (cachedHierarchy.context.HasDependency<T>()) {
+                                return cachedHierarchy.context;
+                            }
                         }
                     }
-                    transform = transform.parent;
+                }
+                transformHierarchy.ResetWalk(); // at least we've cached hierarchy
+                
+                // check parents
+                while (true) {
+                    // fast check
+                    if (contextsInScene.ContainsTransform( transform )) {
+                        // find
+                        for (int i = 0; i < contextsInScene.Count; i++) { 
+                            var context = contextsInScene[i];
+                            if (isCorrectGroup( context, groupNumber ) && ReferenceEquals( context.transform, transform )) {
+                                if (context.HasDependency<T>()) {
+                                    contextsInScene.AddPoint( i );
+                                    transformHierarchy.context = context;
+                                    _cachedContextFinds[transformTypeTuple] = transformHierarchy;
+                                    return context;
+                                }
+                            }
+                        }
+                    }
+                    if (!transformHierarchy.TryWalkParent( out transform ))
+                        break;
                 }
 
                 // check scene root context
-                if (isCorrectGroup( contextsInScene[0], groupNumber ) && contextsInScene[0].HasDependency<T>())
-                    return contextsInScene[0];
+                var root = contextsInScene.GetRoot();
+                if (isCorrectGroup( root, groupNumber ) && root.HasDependency<T>()) 
+                    return root;
             }
 
             // check topmost scene root context
             if (_topMostScene.Equals( sceneHandle )) {
-                var root = _sceneContexts[_topMostScene][0];
+                var root = _sceneContexts[_topMostScene].GetRoot();
                 if (isCorrectGroup( root, groupNumber ) && root.HasDependency<T>())
                     return root;
             }
@@ -135,8 +173,10 @@ namespace Binject {
             // check grouped contexts from any scene
             if (_groupedContexts.TryGetValue( groupNumber, out var list ) && list.Count > 0) {
                 for (int i = 0; i < list.Count; i++)
-                    if (list[i].HasDependency<T>())
+                    if (list[i].HasDependency<T>()) {
+                        list.AddPoint( i );
                         return list[i];
+                    }
             }
 
 #if WARN
@@ -156,6 +196,7 @@ namespace Binject {
 #if B_DEBUG
             Debug.Log( $"adding {context.name}({context.gameObject.scene.name}). all: {CreateStringListOfAllContexts()}", context );
 #endif
+            _cachedContextFinds.Clear();
             // add to lists
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
                 _groupedContexts[context.Group] = glist = new( 4 );
@@ -174,6 +215,7 @@ namespace Binject {
 #if B_DEBUG
             Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}" );
 #endif
+            _cachedContextFinds.Clear();
             bool changed = false;
             
             // remove from lists
@@ -196,6 +238,7 @@ namespace Binject {
         /// <b> It's an expensive call! </b>
         /// </summary>
         internal static void UpdateContextScene(BContext context, SceneHandle previousScene) {
+            _cachedContextFinds.Clear();
             var sceneHandle = new SceneHandle( context.gameObject.scene );
             if (sceneHandle.Value == previousScene.Value) return;
 
@@ -223,34 +266,39 @@ namespace Binject {
 
         /// <summary>
         /// Updates <see cref="_sceneContexts"/>'s roots, <see cref="_groupedContexts"/>'s roots and
-        /// <see cref="_topMostScene"/>. (root is index 0 of a <see cref="BContext"/> list)
+        /// <see cref="_topMostScene"/>.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        static void UpdateAllRootContextsAndTopmostScene() {
+        internal static void UpdateAllRootContextsAndTopmostScene() {
             if (_sceneContexts.Count == 0) {
                 _topMostScene = default;
                 return;
             }
+            // will be needed 
+            var stack = new Stack<Transform>( 32 );
             
             // scene roots
             int rootOrder;
             foreach (var contexts in _sceneContexts.Values) {
-                rootOrder = GetHierarchyOrder( contexts[0].transform );
-                int index = 0;
-                for (int i = 1; i < contexts.Count; i++) {
-                    var order = GetHierarchyOrder( contexts[i].transform );
+#if B_DEBUG
+                bool changed = false;
+#endif
+                rootOrder = GetHierarchyOrder( contexts.GetRoot().transform, stack );
+                for (int i = 0; i < contexts.Count; i++) {
+                    var order = GetHierarchyOrder( contexts[i].transform, stack );
                     if (order < rootOrder) {
                         rootOrder = order;
-                        index = i;
+                        contexts.RootIndex = i;
+#if B_DEBUG
+                        changed = true;
+#endif
                     }
                 }
-                // swap old root with new root
-                if (index != 0) {
-                    (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
+                
 #if B_DEBUG
-                    Debug.Log( $"Root of scene '{contexts[0].gameObject.scene.name}' changed: {contexts[0].name}({contexts[0].gameObject.scene.name})" );
+                if (changed)
+                    Debug.Log( $"Root of scene '{contexts[0].gameObject.scene.name}' changed: {contexts.GetRoot().name}({contexts.GetRoot().gameObject.scene.name})" );
 #endif
-                }
             }
             
             // group roots (and topmost scene at the same time)
@@ -264,7 +312,8 @@ namespace Binject {
                 var sceneHandle = new SceneHandle( scene );
                 if (!foundTopmostScene && _sceneContexts.ContainsKey( sceneHandle )) {
 #if B_DEBUG
-                    if (_topMostScene.Equals( sceneHandle )) Debug.Log( $"Topmost scene changed: {scene.name}" );
+                    if (!_topMostScene.Equals( sceneHandle )) 
+                        Debug.Log( $"Topmost scene changed: {scene.name}" );
 #endif
                     _topMostScene = sceneHandle;
                     foundTopmostScene = true;
@@ -273,45 +322,50 @@ namespace Binject {
             
             foreach (var contexts in _groupedContexts.Values) {
                 const int SCENE_BENEFIT = 1_000_000;
-                rootOrder = GetHierarchyOrder( contexts[0].transform ) * sceneOrder[contexts[0].gameObject.scene] * SCENE_BENEFIT;
-                int index = 0;
-                for (int i = 1; i < contexts.Count; i++) {
-                    var order = GetHierarchyOrder( contexts[i].transform ) * sceneOrder[contexts[i].gameObject.scene] * SCENE_BENEFIT;
+                rootOrder = GetHierarchyOrder( contexts.GetRoot().transform, stack ) * sceneOrder[contexts.GetRoot().gameObject.scene] * SCENE_BENEFIT;
+#if B_DEBUG
+                bool changed = false;   
+#endif
+                for (int i = 0; i < contexts.Count; i++) {
+                    var order = GetHierarchyOrder( contexts[i].transform, stack ) * sceneOrder[contexts[i].gameObject.scene] * SCENE_BENEFIT;
                     if (order < rootOrder) {
                         rootOrder = order;
-                        index = i;
+                        contexts.RootIndex = i;
+#if B_DEBUG
+                        changed = true;
+#endif
                     }
                 }
-                // swap old root with new root
-                if (index != 0) {
-                    (contexts[0], contexts[index]) = (contexts[index], contexts[0]);
 #if B_DEBUG
-                    Debug.Log( $"Root of group '{contexts[0].Group}' changed: {contexts[0].name}({contexts[0].gameObject.scene.name})" );
+                if (changed)
+                    Debug.Log( $"Root of group '{contexts[0].Group}' changed: {contexts.GetRoot().name}({contexts.GetRoot().gameObject.scene.name})" );
 #endif
-                }
             }
         }
 
         /// <summary>
         /// checks whether or not the <see cref="context"/> is compatible with the given <see cref="groupNumber"/>
         /// </summary>
-        [MethodImpl( MethodImplOptions.AggressiveInlining)]
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static bool isCorrectGroup(BContext context, ushort groupNumber) => groupNumber == 0 || groupNumber == context.Group;
         
         /// <summary>
-        /// Returns the index of which the transform will show up in hierarchy if everything is expanded
+        /// Returns the index of which the transform will show up in hierarchy if everything is expanded. <para/>
+        /// the <see cref="stack"/> has to be empty but initialized.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        static int GetHierarchyOrder(Transform transform) {
-            int order = 0;
+        static int GetHierarchyOrder(Transform transform, Stack<Transform> stack) {
             do {
-                order += transform.GetSiblingIndex();
+                stack.Push( transform );
                 transform = transform.parent;
-            } while (transform);
+            } while (transform is not null);
+
+            int order = 0;
+            while (stack.Count > 0) 
+                order += stack.Pop().GetSiblingIndex() * 100;
 
             return order;
         }
-        
 
 #endregion
 
@@ -421,5 +475,26 @@ namespace Binject {
         
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public bool Equals(SceneHandle other) => Value == other.Value;
+    }
+
+
+    struct TransformTypeTuple : IEqualityComparer<TransformTypeTuple> {
+        public int transformHash;
+        public Type type;
+        
+        public TransformTypeTuple(Transform transform, Type type) {
+            transformHash = transform.GetHashCode();
+            this.type = type;
+        }
+
+        public bool Equals(TransformTypeTuple x, TransformTypeTuple y) => x.transformHash == y.transformHash && ReferenceEquals( x.type, y.type );
+        public int GetHashCode(TransformTypeTuple obj) {
+            var hash = new HashCode();
+            hash.Add( obj.transformHash.GetHashCode() );
+            hash.Add( obj.type.GetHashCode() );
+            return hash.ToHashCode();
+        }
+
+        public override string ToString() => $"({transformHash}, {type})";
     }
 }
