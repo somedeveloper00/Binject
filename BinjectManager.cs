@@ -253,9 +253,9 @@ namespace Binject {
 #if B_DEBUG
                 bool changed = false;
 #endif
-                rootOrder = GetHierarchyOrder( contexts.GetRoot().transform, stack );
+                rootOrder = CalculateHierarchyOrder( contexts.GetRoot().transform, stack );
                 for (int i = 0; i < contexts.Count; i++) {
-                    var order = GetHierarchyOrder( contexts[i].transform, stack );
+                    var order = CalculateHierarchyOrder( contexts[i].transform, stack );
                     if (order < rootOrder) {
                         rootOrder = order;
                         contexts.RootIndex = i;
@@ -292,12 +292,12 @@ namespace Binject {
             
             foreach (var contexts in _groupedContexts.Values) {
                 const int SCENE_BENEFIT = 1_000_000;
-                rootOrder = GetHierarchyOrder( contexts.GetRoot().transform, stack ) * sceneOrder[contexts.GetRoot().gameObject.scene] * SCENE_BENEFIT;
+                rootOrder = CalculateHierarchyOrder( contexts.GetRoot().transform, stack ) * sceneOrder[contexts.GetRoot().gameObject.scene] * SCENE_BENEFIT;
 #if B_DEBUG
                 bool changed = false;   
 #endif
                 for (int i = 0; i < contexts.Count; i++) {
-                    var order = GetHierarchyOrder( contexts[i].transform, stack ) * sceneOrder[contexts[i].gameObject.scene] * SCENE_BENEFIT;
+                    var order = CalculateHierarchyOrder( contexts[i].transform, stack ) * sceneOrder[contexts[i].gameObject.scene] * SCENE_BENEFIT;
                     if (order < rootOrder) {
                         rootOrder = order;
                         contexts.RootIndex = i;
@@ -324,7 +324,7 @@ namespace Binject {
         /// the <see cref="stack"/> has to be empty but initialized.
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        static int GetHierarchyOrder(Transform transform, Stack<Transform> stack) {
+        static int CalculateHierarchyOrder(Transform transform, Stack<Transform> stack) {
             do {
                 stack.Push( transform );
                 transform = transform.parent;

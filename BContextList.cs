@@ -20,7 +20,7 @@ namespace Binject {
         }
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
-        public BContext GetRoot() => this[RootIndex];
+        public BContext GetRoot() => RootIndex >= Count ? this[0] : this[RootIndex];
 
         public new void Add(BContext context) {
             base.Add( context );
