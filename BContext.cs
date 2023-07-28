@@ -32,7 +32,7 @@ namespace Binject {
         
         
         [NonSerialized] readonly List<IValueHolder> _structDependencies = new( 8 );
-        [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16 );
+        [NonSerialized] readonly HashSet<TypeHandle> _dependencyTypes = new( 16 );
         [NonSerialized] bool _syncedDependencyTypes;
         [NonSerialized] bool _addedToManager;
 
@@ -124,7 +124,7 @@ namespace Binject {
         /// the old one.
         /// </summary>
         public void Bind<T>(T dependency) {
-            if (_dependencyTypes.Add( typeof(T) )) {
+            if (_dependencyTypes.Add( new( typeof(T) ))) {
                 // new type
                 if (typeof(T).IsValueType) {
                     _structDependencies.Add( new RealValueHolder<T>( dependency ) );
@@ -181,7 +181,7 @@ namespace Binject {
         /// Unbinds a dependency from this context.
         /// </summary>
         public void Unbind<T>() {
-            if (_dependencyTypes.Remove( typeof(T) )) {
+            if (_dependencyTypes.Remove( new( typeof(T) ))) {
                 if (typeof(T).IsValueType) {
                     for (int i = 0; i < _structDependencies.Count; i++) {
                         if (_structDependencies[i].GetValueType() == typeof(T)) {
@@ -215,7 +215,7 @@ namespace Binject {
         /// <summary>
         /// Checks if this context has a dependency of type <see cref="T"/>
         /// </summary>
-        public bool HasDependency<T>() => _dependencyTypes.Contains( typeof(T) );
+        public bool HasDependency<T>() => _dependencyTypes.Contains( new( typeof(T) ));
 
         /// <summary>
         /// Returns the dependency of type <see cref="T"/> if it exists, otherwise returns <c>default</c>.
@@ -313,11 +313,11 @@ namespace Binject {
         void SyncAllDependencyTypes(bool clear) {
             if (clear) _dependencyTypes.Clear();
             for (int i = 0; i < ClassDependencies.Count; i++)
-                _dependencyTypes.Add( ClassDependencies[i].GetType() );
+                _dependencyTypes.Add( new( ClassDependencies[i].GetType() ));
             for (int i = 0; i < UnityObjectDependencies.Count; i++) 
-                _dependencyTypes.Add( UnityObjectDependencies[i].GetType() );
+                _dependencyTypes.Add( new( UnityObjectDependencies[i].GetType() ));
             for (int i = 0; i < _structDependencies.Count; i++)
-                _dependencyTypes.Add( _structDependencies[i].GetValueType() );
+                _dependencyTypes.Add( new( _structDependencies[i].GetValueType() ));
         }
 
         /// <summary>
@@ -357,5 +357,18 @@ namespace Binject {
 
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static bool IsUnityObjectType(Type type) => type.IsSubclassOf( typeof(UnityEngine.Object) );
+    }
+
+
+    struct TypeHandle : IEquatable<TypeHandle> {
+        public IntPtr Value;
+
+        public TypeHandle(Type type) => Value = type.TypeHandle.Value;
+        public TypeHandle(IntPtr handle) => Value = handle;
+
+        public bool Equals(TypeHandle other) => Value == other.Value;
+        public override int GetHashCode() => Value.ToInt32();
+        public static bool operator ==(TypeHandle left, TypeHandle right) => left.Equals( right );
+        public static bool operator !=(TypeHandle left, TypeHandle right) => !left.Equals( right );
     }
 }

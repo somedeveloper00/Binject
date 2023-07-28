@@ -30,13 +30,13 @@ namespace Binject {
         /// Contexts grouped per scene (key is <see cref="Scene.handle"/>). index 0 is root. only scenes with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<SceneHandle, List<BContext>> _sceneContexts = new( 64 );
+        [NonSerialized] static readonly Dictionary<SceneHandle, List<BContext>> _sceneContexts = new( 4 );
         
         /// <summary>
         /// contexts grouped per <see cref="BContext.Group"/>. only groups with at least 1 <see cref="BContext"/> are
         /// contained here; when they reach zero length, they'll be removed from the dictionary altogether.
         /// </summary>
-        [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 64 );
+        [NonSerialized] static readonly Dictionary<ushort, List<BContext>> _groupedContexts = new( 4 );
 
 #region Publics
 
@@ -158,10 +158,10 @@ namespace Binject {
 #endif
             // add to lists
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
-                _groupedContexts[context.Group] = glist = new List<BContext>( 4 );
+                _groupedContexts[context.Group] = glist = new( 4 );
             glist.Add( context );
             if (!_sceneContexts.TryGetValue( sceneHandle, out var slist ))
-                _sceneContexts[sceneHandle] = slist = new List<BContext>( 4 );
+                _sceneContexts[sceneHandle] = slist = new( 4 );
             slist.Add( context );
 
             UpdateAllRootContextsAndTopmostScene();
@@ -205,7 +205,7 @@ namespace Binject {
 
             // add
             if (!_sceneContexts.TryGetValue( sceneHandle, out var list ))
-                _sceneContexts.Add( sceneHandle, list = new List<BContext>( 8 ) );
+                _sceneContexts.Add( sceneHandle, list = new( 8 ) );
             list.Add( context );
             // remove
             list = _sceneContexts[previousScene];
