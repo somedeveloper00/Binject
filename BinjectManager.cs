@@ -38,12 +38,6 @@ namespace Binject {
         /// </summary>
         [NonSerialized] static readonly Dictionary<ushort, BContextList> _groupedContexts = new( 4 );
         
-        /// <summary>
-        /// transform hierarchies cached for faster iterations to find context in repeated scenarios.<para/>
-        /// The key is the transform in question, and the value is path to context.
-        /// </summary>
-        [NonSerialized] static readonly Dictionary<TransformTypeTuple, TransformHierarchy> _cachedContextFinds = new( 32, new TransformTypeTuple() );
-
 #region Publics
 
         /// <summary>
@@ -113,31 +107,13 @@ namespace Binject {
         [MethodImpl( MethodImplOptions.AggressiveInlining)]
         public static BContext FindContext<T>(Transform transform, ushort groupNumber = 0) {
 
-            var transformTypeTuple = new TransformTypeTuple( transform, typeof(T) );
             var sceneHandle = new SceneHandle( transform.gameObject.scene );
-            
+
             // search in scene
             if (_sceneContexts.TryGetValue( sceneHandle, out var contextsInScene )) {
                 
-                // check cache
-                TransformHierarchy transformHierarchy = new( transform );
-                if (_cachedContextFinds.TryGetValue( transformTypeTuple, out var cachedHierarchy )) {
-                    cachedHierarchy.ResetWalk();
-                    while (true) {
-                        if (cachedHierarchy.TryWalkParent( out var p1 ) != transformHierarchy.TryWalkParent( out var p2 )) {
-                            break;
-                        } 
-                        if (ReferenceEquals( p1, p2 ) && p1 is null) { // reached end
-                            if (cachedHierarchy.context.HasDependency<T>()) {
-                                return cachedHierarchy.context;
-                            }
-                        }
-                    }
-                }
-                transformHierarchy.ResetWalk(); // at least we've cached hierarchy
-                
                 // check parents
-                while (true) {
+                while (transform is not null) {
                     // fast check
                     if (contextsInScene.ContainsTransform( transform )) {
                         // find
@@ -146,15 +122,12 @@ namespace Binject {
                             if (isCorrectGroup( context, groupNumber ) && ReferenceEquals( context.transform, transform )) {
                                 if (context.HasDependency<T>()) {
                                     contextsInScene.AddPoint( i );
-                                    transformHierarchy.context = context;
-                                    _cachedContextFinds[transformTypeTuple] = transformHierarchy;
                                     return context;
                                 }
                             }
                         }
                     }
-                    if (!transformHierarchy.TryWalkParent( out transform ))
-                        break;
+                    transform = transform.parent;
                 }
 
                 // check scene root context
@@ -196,7 +169,6 @@ namespace Binject {
 #if B_DEBUG
             Debug.Log( $"adding {context.name}({context.gameObject.scene.name}). all: {CreateStringListOfAllContexts()}", context );
 #endif
-            _cachedContextFinds.Clear();
             // add to lists
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
                 _groupedContexts[context.Group] = glist = new( 4 );
@@ -215,7 +187,6 @@ namespace Binject {
 #if B_DEBUG
             Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}" );
 #endif
-            _cachedContextFinds.Clear();
             bool changed = false;
             
             // remove from lists
@@ -238,7 +209,6 @@ namespace Binject {
         /// <b> It's an expensive call! </b>
         /// </summary>
         internal static void UpdateContextScene(BContext context, SceneHandle previousScene) {
-            _cachedContextFinds.Clear();
             var sceneHandle = new SceneHandle( context.gameObject.scene );
             if (sceneHandle.Value == previousScene.Value) return;
 
@@ -468,7 +438,6 @@ namespace Binject {
     internal readonly struct SceneHandle : IEquatable<SceneHandle> {
         public readonly int Value;
         public SceneHandle(Scene scene) => Value = scene.handle;
-        public SceneHandle(int handle) => Value = handle;
         
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         public override int GetHashCode() => Value;
