@@ -16,7 +16,7 @@ You can install this as a unity package by following the instructions at [the of
 ### Git Submodule
 clone the repository into your project's Assets/Plugins folder as a submodule:
 ```bash
-git submodule add --force https://github.com/somedeveloper00/Binject/ Assets/Plugins/Binject
+git submodule add --force https://github.com/somedeveloper00/Binject/Assets/Plugins/Binject
 git submodule update Assets/Plugins/Binject
 ```
 or if you don't have git, simply download the zip and extract it into your project's Assets/Plugins folder:
