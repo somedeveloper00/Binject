@@ -33,7 +33,10 @@ namespace Binject {
         
         [NonSerialized] readonly List<IValueHolder> _structDependencies = new( 8 );
         [NonSerialized] readonly HashSet<Type> _dependencyTypes = new( 16 );
-        [NonSerialized] bool _initialized;
+        [NonSerialized] bool _syncedDependencyTypes;
+        [NonSerialized] bool _addedToManager;
+
+        SceneHandle _lastSceneHandle;
 
 #if UNITY_EDITOR
         /// <summary>
@@ -87,11 +90,10 @@ namespace Binject {
                 Debug.LogWarning( $"Binject Context of {name} removed some dependencies:\n{sb}" );
                 
             // support in-editor injection
-            if (!_initialized) { 
-                SyncAllDependencyTypes( true );
-                BinjectManager.AddContext( this );
-                _initialized = true;
-            }
+            SyncDependencyTypesIfHaveNot();
+            SaveLastScene();
+            AddToManagerIfNotAddedTo();
+            ReportSceneChangeOrRemoveFromManagerIfPossible();
         }
 
 #endif
@@ -99,25 +101,21 @@ namespace Binject {
         void Awake() {
             _structDependencies.Clear();
             ApplyAllSerializedStructs();
-            if (!_initialized) {
-                SyncAllDependencyTypes( true );
-                BinjectManager.AddContext( this );
-                _initialized = true;
-            }
+            SyncDependencyTypesIfHaveNot();
+            SaveLastScene();
+            AddToManagerIfNotAddedTo();
         }
 
-        void OnEnable() {
-            if (!_initialized) BinjectManager.AddContext( this );
-            _initialized = true;
-        }
+        void OnEnable() => AddToManagerIfNotAddedTo();
+        void OnDisable() => RemoveFromManagerIfAddedTo();
+        void OnDestroy() => RemoveFromManagerIfAddedTo();
 
-        void OnDisable() {
-            if (_initialized) BinjectManager.RemoveContext( this ); 
-            _initialized = false;
-        }
-
-        void OnDestroy() {
-            if (_initialized) BinjectManager.RemoveContext( this );
+        void LateUpdate() {
+#if UNITY_EDITOR
+            if (!Application.isPlaying) return;
+#endif
+            // TODO: come up with a better way of handling scene-change 
+            ReportSceneChangeOrRemoveFromManagerIfPossible();
         }
 
 
@@ -250,6 +248,58 @@ namespace Binject {
                 StructDependencies_Serialized.Add( new BoxedValueHolder( _structDependencies[i].BoxAndGetValue() ) );
         }
 
+
+        /// <summary>
+        /// Reports scene change to <see cref="BinjectManager"/> if it happened, or removes this from it if it has
+        /// moved to an invalid scene.
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void ReportSceneChangeOrRemoveFromManagerIfPossible() {
+            var sceneHandle = new SceneHandle( gameObject.scene );
+            if (_lastSceneHandle.Value != sceneHandle.Value) { // scene changed
+                if (sceneHandle.Value == 0) { // invalid scene
+                    BinjectManager.RemoveContext( this, sceneHandle );
+                    _addedToManager = false;
+                } else {
+                    BinjectManager.UpdateContextScene( this, _lastSceneHandle );
+                }
+                SaveLastScene();
+            }
+        }
+
+        /// <summary>
+        /// Adds this to <see cref="BinjectManager"/> if it wasn't added to it already and if it has a valid scene.
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void AddToManagerIfNotAddedTo() {
+            if (_lastSceneHandle.Value != 0 && !_addedToManager) {
+                BinjectManager.AddContext( this, _lastSceneHandle );
+                _addedToManager = true;
+            }
+        }
+
+        /// <summary>
+        /// Removes this from <see cref="BinjectManager"/> if it was added to it.
+        /// </summary>
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void RemoveFromManagerIfAddedTo() {
+            if (_addedToManager) {
+                BinjectManager.RemoveContext( this, _lastSceneHandle );
+                _addedToManager = false;
+            }
+        }
+
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void SyncDependencyTypesIfHaveNot() {
+            if (!_syncedDependencyTypes) {
+                SyncAllDependencyTypes( true );
+                _syncedDependencyTypes = true;
+            }
+        }
+        
+        [MethodImpl( MethodImplOptions.AggressiveInlining )]
+        void SaveLastScene() => _lastSceneHandle = new( gameObject.scene );
+        
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         void ApplyAllSerializedStructs() {
             for (int i = 0; i < StructDependencies_Serialized.Count; i++)

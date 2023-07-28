@@ -152,12 +152,11 @@ namespace Binject {
         /// <summary>
         /// Adds the context to internal lists and updates caches
         /// </summary>
-        internal static void AddContext(BContext context) {
+        internal static void AddContext(BContext context, SceneHandle sceneHandle) {
 #if B_DEBUG
-            Debug.Log( $"adding {context.name}({context.gameObject.scene.name}). all: {CreateStringListOfAllContexts()}" );
+            Debug.Log( $"adding {context.name}({context.gameObject.scene.name}). all: {CreateStringListOfAllContexts()}", context );
 #endif
             // add to lists
-            var sceneHandle = new SceneHandle( context.gameObject.scene.handle );
             if (!_groupedContexts.TryGetValue( context.Group, out var glist ))
                 _groupedContexts[context.Group] = glist = new List<BContext>( 4 );
             glist.Add( context );
@@ -171,14 +170,13 @@ namespace Binject {
         /// <summary>
         /// Removes the context from internal lists and updates caches
         /// </summary>
-        internal static void RemoveContext(BContext context) {
+        internal static void RemoveContext(BContext context, SceneHandle sceneHandle) {
 #if B_DEBUG
             Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}" );
 #endif
             bool changed = false;
             
             // remove from lists
-            var sceneHandle = new SceneHandle( context.gameObject.scene.handle );
             if (_groupedContexts.TryGetValue( context.Group, out var glist )) {
                 changed = glist.Remove( context );
                 if (changed && glist.Count == 0)
@@ -192,11 +190,35 @@ namespace Binject {
 
             if (changed) UpdateAllRootContextsAndTopmostScene();
         }
-        
+
+        /// <summary>
+        /// Updates the internal lists based on the scene change. Will also update all the root contexts. <para/>
+        /// <b> It's an expensive call! </b>
+        /// </summary>
+        internal static void UpdateContextScene(BContext context, SceneHandle previousScene) {
+            var sceneHandle = new SceneHandle( context.gameObject.scene );
+            if (sceneHandle.Value == previousScene.Value) return;
+
+#if B_DEBUG
+            Debug.Log( $"Context {context.name} changed scene handle from {previousScene.Value} to {sceneHandle.Value}" );
+#endif
+
+            // add
+            if (!_sceneContexts.TryGetValue( sceneHandle, out var list ))
+                _sceneContexts.Add( sceneHandle, list = new List<BContext>( 8 ) );
+            list.Add( context );
+            // remove
+            list = _sceneContexts[previousScene];
+            list.Remove( context );
+            if (list.Count == 0) _sceneContexts.Remove( previousScene );
+
+            UpdateAllRootContextsAndTopmostScene();
+        }
+
 #if B_DEBUG
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         static string CreateStringListOfAllContexts() =>
-            $"[{string.Join( ", ", _sceneContexts.SelectMany( s => s.Value ).Select( c => $"{c.name}({c.gameObject.scene.name})" ) )}]";
+            $"[{string.Join( ", ", _sceneContexts.SelectMany( s => s.Value ).Select( c => c ? $"{c.name}({c.gameObject.scene.name})" : "null" ) )}]";
 #endif
 
         /// <summary>
