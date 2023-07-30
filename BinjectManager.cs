@@ -68,11 +68,14 @@ namespace Binject {
                 var originalTransform = transform;
                 // parents
                 while (transform is not null) {
-                    for (int i = 0; i < contextsInScene.Count; i++)
-                        if (isCorrectGroup( contextsInScene[i], groupNumber ) && ReferenceEquals( transform, contextsInScene[i].transform )) {
+                    for (int i = 0; i < contextsInScene.Count; i++) {
+                        var context = contextsInScene[i];
+                        if (isCorrectGroup( context, groupNumber ) && ReferenceEquals( transform, context.transform )) {
                             contextsInScene.AddPoint( i );
-                            return contextsInScene[i];
+                            return context;
                         }
+                    }
+
                     transform = transform.parent;
                 }
 
@@ -119,7 +122,7 @@ namespace Binject {
                         // find
                         for (int i = 0; i < contextsInScene.Count; i++) { 
                             var context = contextsInScene[i];
-                            if (isCorrectGroup( context, groupNumber ) && ReferenceEquals( context.transform, transform )) {
+                            if (isCorrectGroup( context, groupNumber ) && context.transform == transform ) {
                                 if (context.HasDependency<T>()) {
                                     contextsInScene.AddPoint( i );
                                     return context;
@@ -145,11 +148,13 @@ namespace Binject {
 
             // check grouped contexts from any scene
             if (_groupedContexts.TryGetValue( groupNumber, out var list ) && list.Count > 0) {
-                for (int i = 0; i < list.Count; i++)
-                    if (list[i].HasDependency<T>()) {
+                for (int i = 0; i < list.Count; i++) {
+                    var context = list[i];
+                    if (context.HasDependency<T>()) {
                         list.AddPoint( i );
-                        return list[i];
+                        return context;
                     }
+                }
             }
 
 #if WARN
@@ -185,7 +190,7 @@ namespace Binject {
         /// </summary>
         internal static void RemoveContext(BContext context, SceneHandle sceneHandle) {
 #if B_DEBUG
-            Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}" );
+            Debug.Log( $"removing {(context ? $"{context.name}({context.gameObject.scene.name})" : "null")}. all: {CreateStringListOfAllContexts()}", context );
 #endif
             bool changed = false;
             

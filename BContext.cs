@@ -273,7 +273,7 @@ namespace Binject {
         void ReportSceneChangeOrRemoveFromManagerIfPossible() {
             var sceneHandle = new SceneHandle( gameObject.scene );
             if (_lastSceneHandle.Value != sceneHandle.Value) { // scene changed
-                if (sceneHandle.Value == 0) { // invalid scene
+                if (sceneHandle.Value == 0 || !gameObject.scene.isLoaded) { // invalid scene
                     BinjectManager.RemoveContext( this, sceneHandle );
                     _addedToManager = false;
                 } else {
@@ -289,7 +289,7 @@ namespace Binject {
         /// </summary>
         [MethodImpl( MethodImplOptions.AggressiveInlining )]
         void AddToManagerIfNotAddedTo() {
-            if (_lastSceneHandle.Value != 0 && !_addedToManager) {
+            if (_lastSceneHandle.Value != 0 && gameObject.scene.isLoaded && !_addedToManager) {
                 BinjectManager.AddContext( this, _lastSceneHandle );
                 _addedToManager = true;
             }
